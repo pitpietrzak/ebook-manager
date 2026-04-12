@@ -4,6 +4,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
+import { useTheme } from '../contexts/ThemeContext';
+import { StatusBar } from 'react-native';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'BookDetail'>;
@@ -13,6 +15,7 @@ type Props = {
 type Book = {
   id: string;
   title: string;
+  alt_title?: string | null;
   author: string;
   genre: string;
   description: string;
@@ -28,6 +31,8 @@ export default function BookDetailScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [showPolish, setShowPolish] = useState(false);
+  const { colors, isDark } = useTheme();
+  const styles = getStyles(colors, isDark);
 
   useEffect(() => {
     fetchBookDetails();
@@ -64,13 +69,13 @@ export default function BookDetailScreen({ route }: Props) {
   };
 
   if (loading) {
-    return <ActivityIndicator style={{ marginTop: 50 }} size="large" />;
+    return <ActivityIndicator style={{ marginTop: 50 }} size="large" color={colors.primary} />;
   }
 
   if (!book) {
     return (
       <View style={styles.container}>
-        <Text>Book not found.</Text>
+        <Text style={{ color: colors.text }}>Book not found.</Text>
       </View>
     );
   }
@@ -79,8 +84,12 @@ export default function BookDetailScreen({ route }: Props) {
 
   return (
     <ScrollView style={styles.container}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.content}>
         <Text style={styles.title}>{book.title}</Text>
+        {book.alt_title && (
+          <Text style={styles.subtitle}>{book.alt_title}</Text>
+        )}
         <Text style={styles.author}>by {book.author}</Text>
         
         <View style={styles.tagsContainer}>
@@ -125,19 +134,19 @@ export default function BookDetailScreen({ route }: Props) {
 
           {book.goodreads_url ? (
             <TouchableOpacity 
-              style={[styles.secondaryButton, { borderColor: '#E9E5CE' }]} 
+              style={[styles.secondaryButton, { borderColor: isDark ? '#82713D' : '#E9E5CE' }]} 
               onPress={() => Linking.openURL(book.goodreads_url!)}
             >
-              <Text style={[styles.secondaryButtonText, { color: '#82713D' }]}>📚 Open in Goodreads</Text>
+              <Text style={[styles.secondaryButtonText, { color: isDark ? '#D9C587' : '#82713D' }]}>📚 Open in Goodreads</Text>
             </TouchableOpacity>
           ) : null}
 
           {book.lubimyczytac_url ? (
             <TouchableOpacity 
-              style={[styles.secondaryButton, { borderColor: '#F5E8E8' }]} 
+              style={[styles.secondaryButton, { borderColor: isDark ? '#D32F2F' : '#F5E8E8' }]} 
               onPress={() => Linking.openURL(book.lubimyczytac_url!)}
             >
-              <Text style={[styles.secondaryButtonText, { color: '#D32F2F' }]}>📖 Open in LubimyCzytać</Text>
+              <Text style={[styles.secondaryButtonText, { color: isDark ? '#FF8A80' : '#D32F2F' }]}>📖 Open in LubimyCzytać</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -146,13 +155,10 @@ export default function BookDetailScreen({ route }: Props) {
   );
 }
 
-const PURPLE_MAIN = '#531492';
-const PINK_ACCENT = '#E80F88';
-
-const styles = StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FDF8FF',
+    backgroundColor: colors.background,
   },
   content: {
     padding: 20,
@@ -160,18 +166,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: PURPLE_MAIN,
+    color: colors.primary,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 18,
-    color: '#A155B9',
+    color: colors.accent,
     fontStyle: 'italic',
     marginBottom: 8,
   },
   author: {
     fontSize: 18,
-    color: '#666',
+    color: colors.textSecondary,
     marginBottom: 20,
   },
   tagsContainer: {
@@ -181,19 +187,20 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   tag: {
-    backgroundColor: '#F5E8FA',
+    backgroundColor: isDark ? '#3A2552' : '#F5E8FA',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
   },
   tagText: {
-    color: '#71229F',
+    color: isDark ? '#E9D5FF' : '#71229F',
     fontSize: 14,
     fontWeight: '600',
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
+    color: colors.text,
   },
   descriptionHeader: {
     flexDirection: 'row',
@@ -203,21 +210,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   translateText: {
-    color: PINK_ACCENT,
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '600',
   },
   description: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#444',
+    color: colors.text,
   },
   actions: {
     marginTop: 40,
     gap: 15,
   },
   primaryButton: {
-    backgroundColor: PURPLE_MAIN,
+    backgroundColor: colors.primary,
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -228,15 +235,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   secondaryButton: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: PINK_ACCENT,
+    borderColor: colors.accent,
   },
   secondaryButtonText: {
-    color: PINK_ACCENT,
+    color: colors.accent,
     fontSize: 16,
     fontWeight: 'bold',
   }

@@ -19,8 +19,12 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-export default function App() {
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { DefaultTheme, DarkTheme } from '@react-navigation/native';
+
+function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
+  const { colors, isDark } = useTheme();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -32,9 +36,26 @@ export default function App() {
     });
   }, []);
 
+  const navTheme = {
+    ...(isDark ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(isDark ? DarkTheme.colors : DefaultTheme.colors),
+      background: colors.background,
+      card: colors.headerBg,
+      text: colors.text,
+      border: colors.border,
+    },
+  };
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator>
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.headerBg },
+          headerTintColor: colors.primary,
+          headerTitleStyle: { fontWeight: '700', color: colors.text },
+        }}
+      >
         {session && session.user ? (
           <>
             <Stack.Screen name="Collections" component={CollectionsScreen} options={{ headerShown: false }} />
@@ -50,5 +71,13 @@ export default function App() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

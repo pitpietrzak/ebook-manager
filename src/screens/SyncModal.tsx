@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../utils/supabase';
+import { useTheme } from '../contexts/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -30,6 +31,8 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   const [groupingMode, setGroupingMode] = useState<'auto' | 'custom'>('auto');
   const [customCollection, setCustomCollection] = useState('');
   const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, status: '' });
+  const { colors, isDark } = useTheme();
+  const styles = getStyles(colors, isDark);
 
   const sharedFolderId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
 
@@ -244,7 +247,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
       )}
 
       {loadingDrive ? (
-        <ActivityIndicator color="#6C63FF" style={{ marginTop: 30 }} />
+        <ActivityIndicator color={colors.primary} style={{ marginTop: 30 }} />
       ) : (
         <FlatList
           data={driveItems}
@@ -342,7 +345,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
 
   const renderSyncingStep = () => (
     <View style={[styles.stepContainer, { alignItems: 'center' }]}>
-      <ActivityIndicator size="large" color="#6C63FF" style={{ marginBottom: 20 }} />
+      <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 20 }} />
       <Text style={styles.stepTitle}>Syncing...</Text>
       {syncProgress.total > 0 && (
         <Text style={styles.progressText}>{syncProgress.current} / {syncProgress.total}</Text>
@@ -365,77 +368,77 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40,
     minHeight: 380,
   },
   stepContainer: { width: '100%' },
-  stepTitle: { fontSize: 21, fontWeight: '700', color: '#1A1A2E', marginBottom: 6 },
-  stepSubtitle: { fontSize: 14, color: '#888', marginBottom: 20 },
+  stepTitle: { fontSize: 21, fontWeight: '700', color: colors.text, marginBottom: 6 },
+  stepSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 20 },
   modeRow: { flexDirection: 'row', gap: 12 },
   modeCard: {
-    flex: 1, backgroundColor: '#F7F8FC', borderRadius: 16, padding: 18,
-    borderWidth: 2, borderColor: '#E8E8F0', alignItems: 'center',
+    flex: 1, backgroundColor: isDark ? '#1D122B' : '#F7F8FC', borderRadius: 16, padding: 18,
+    borderWidth: 2, borderColor: isDark ? '#3A2552' : '#E8E8F0', alignItems: 'center',
   },
   modeIcon: { fontSize: 32, marginBottom: 10 },
-  modeTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A2E', marginBottom: 6, textAlign: 'center' },
-  modeDesc: { fontSize: 13, color: '#888', textAlign: 'center', lineHeight: 18 },
+  modeTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 6, textAlign: 'center' },
+  modeDesc: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 18 },
   cancelBtn: {
     marginTop: 16, paddingVertical: 12,
     alignItems: 'center',
   },
-  cancelBtnText: { color: '#888', fontSize: 15, fontWeight: '500' },
+  cancelBtnText: { color: colors.textSecondary, fontSize: 15, fontWeight: '500' },
   browseHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   backBtn: {
-    backgroundColor: '#F0F0F7', paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: isDark ? '#3A2552' : '#F0F0F7', paddingHorizontal: 14, paddingVertical: 8,
     borderRadius: 20,
   },
-  backBtnText: { color: '#6C63FF', fontWeight: '600' },
+  backBtnText: { color: colors.primary, fontWeight: '600' },
   selectAllBtn: { marginBottom: 8 },
-  selectAllText: { color: '#6C63FF', fontWeight: '600', fontSize: 13 },
+  selectAllText: { color: colors.primary, fontWeight: '600', fontSize: 13 },
   driveItem: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
     paddingHorizontal: 8, borderRadius: 10, marginBottom: 4,
   },
-  driveItemSelected: { backgroundColor: '#F0EFFE' },
+  driveItemSelected: { backgroundColor: isDark ? '#3A2552' : '#F0EFFE' },
   driveItemIcon: { fontSize: 20, marginRight: 12 },
-  driveItemName: { flex: 1, fontSize: 15, color: '#1A1A2E' },
-  folderArrow: { fontSize: 22, color: '#888' },
+  driveItemName: { flex: 1, fontSize: 15, color: colors.text },
+  folderArrow: { fontSize: 22, color: colors.textSecondary },
   checkbox: {
-    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#CCC',
+    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.border,
     justifyContent: 'center', alignItems: 'center',
   },
-  checkboxSelected: { backgroundColor: '#6C63FF', borderColor: '#6C63FF' },
-  checkmark: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  emptyDrive: { textAlign: 'center', color: '#888', marginTop: 30 },
+  checkboxSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  checkmark: { color: colors.card, fontWeight: '700', fontSize: 13 },
+  emptyDrive: { textAlign: 'center', color: colors.textSecondary, marginTop: 30 },
   browseFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
   primaryBtn: {
-    backgroundColor: '#6C63FF', paddingHorizontal: 24, paddingVertical: 13,
+    backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 13,
     borderRadius: 14, flex: 1, marginLeft: 12, alignItems: 'center',
   },
   primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: isDark ? '#000' : '#fff', fontWeight: '700', fontSize: 15 },
   groupOption: {
-    backgroundColor: '#F7F8FC', borderRadius: 14, padding: 16,
-    borderWidth: 2, borderColor: '#E8E8F0', marginBottom: 12,
+    backgroundColor: isDark ? '#1D122B' : '#F7F8FC', borderRadius: 14, padding: 16,
+    borderWidth: 2, borderColor: isDark ? '#3A2552' : '#E8E8F0', marginBottom: 12,
   },
-  groupOptionActive: { borderColor: '#6C63FF', backgroundColor: '#F0EFFE' },
+  groupOptionActive: { borderColor: colors.primary, backgroundColor: isDark ? '#2D1B45' : '#F0EFFE' },
   groupOptionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   groupOptionIcon: { fontSize: 18, marginRight: 8 },
-  groupOptionTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#1A1A2E' },
-  groupOptionCheck: { color: '#6C63FF', fontWeight: '700', fontSize: 16 },
-  groupOptionDesc: { fontSize: 13, color: '#888', paddingLeft: 26, lineHeight: 18 },
+  groupOptionTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.text },
+  groupOptionCheck: { color: colors.primary, fontWeight: '700', fontSize: 16 },
+  groupOptionDesc: { fontSize: 13, color: colors.textSecondary, paddingLeft: 26, lineHeight: 18 },
   customInput: {
-    borderWidth: 2, borderColor: '#6C63FF', borderRadius: 12,
+    borderWidth: 2, borderColor: colors.primary, borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 12, fontSize: 15,
-    marginBottom: 8, color: '#1A1A2E',
+    marginBottom: 8, color: colors.text,
   },
-  progressText: { fontSize: 32, fontWeight: '700', color: '#6C63FF', marginBottom: 8 },
-  statusText: { fontSize: 14, color: '#888', textAlign: 'center', marginTop: 12 },
+  progressText: { fontSize: 32, fontWeight: '700', color: colors.primary, marginBottom: 8 },
+  statusText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: 12 },
 });

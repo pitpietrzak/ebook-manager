@@ -9,6 +9,7 @@ import { supabase } from '../utils/supabase';
 import * as SecureStore from 'expo-secure-store';
 import SyncModal from './SyncModal';
 import { useBookUpload } from '../hooks/useBookUpload';
+import { useTheme } from '../contexts/ThemeContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Collections'>;
@@ -26,6 +27,8 @@ export default function CollectionsScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const { colors, theme, isDark, toggleTheme } = useTheme();
+  const styles = getStyles(colors, isDark);
 
   const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchCollections());
 
@@ -103,7 +106,7 @@ export default function CollectionsScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Biblioteczka Leniwców 🦥</Text>
@@ -125,6 +128,11 @@ export default function CollectionsScreen({ navigation }: Props) {
                 <Text style={styles.menuItemText}>Sync Library</Text>
               </TouchableOpacity>
               <View style={styles.menuDivider} />
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); toggleTheme(); }}>
+                <Text style={styles.menuItemIcon}>{isDark ? '☀️' : '🌙'}</Text>
+                <Text style={styles.menuItemText}>{isDark ? 'Light Mode' : 'Dark Mode'}</Text>
+              </TouchableOpacity>
+              <View style={styles.menuDivider} />
               <TouchableOpacity style={styles.menuItemLogout} onPress={() => { setMenuVisible(false); handleLogout(); }}>
                 <Text style={styles.menuItemIcon}>🚪</Text>
                 <Text style={styles.menuItemTextLogout}>Logout</Text>
@@ -134,7 +142,7 @@ export default function CollectionsScreen({ navigation }: Props) {
         </View>
       </View>
 
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.searchBar}
         onPress={() => navigation.navigate('Library', { collectionFilter: null, autoFocusSearch: true })}
         activeOpacity={0.8}
@@ -150,20 +158,20 @@ export default function CollectionsScreen({ navigation }: Props) {
           data={collections}
           keyExtractor={(item) => item.name}
           renderItem={renderCollection}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#531492" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
           ListHeaderComponent={
             <TouchableOpacity
               style={styles.allBooksCard}
               onPress={() => navigation.navigate('Library', { collectionFilter: null })}
             >
-              <View style={[styles.collectionIcon, { backgroundColor: '#53149222' }]}>
-                <Text style={[styles.collectionIconText, { color: '#531492' }]}>📚</Text>
+              <View style={[styles.collectionIcon, { backgroundColor: colors.primary + '22' }]}>
+                <Text style={[styles.collectionIconText, { color: colors.primary }]}>📚</Text>
               </View>
               <View style={styles.collectionInfo}>
                 <Text style={styles.collectionName}>All Books</Text>
                 <Text style={styles.collectionCount}>{totalBooks} books</Text>
               </View>
-              <Text style={[styles.collectionArrow, { color: '#531492' }]}>›</Text>
+              <Text style={[styles.collectionArrow, { color: colors.primary }]}>›</Text>
             </TouchableOpacity>
           }
           ListEmptyComponent={
@@ -194,32 +202,32 @@ export default function CollectionsScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   uploadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(83, 20, 146, 0.7)',
+    backgroundColor: isDark ? 'rgba(18, 11, 30, 0.9)' : 'rgba(83, 20, 146, 0.75)',
     justifyContent: 'center', alignItems: 'center',
     zIndex: 100, elevation: 100,
   },
   uploadingText: {
     color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 16
   },
-  safe: { flex: 1, backgroundColor: '#FDF8FF' },
+  safe: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 16, backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    paddingHorizontal: 20, paddingVertical: 16, backgroundColor: colors.card,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06, shadowRadius: 4, elevation: 10,
+    shadowOpacity: 0.1, shadowRadius: 4, elevation: 5,
     zIndex: 10,
   },
-  headerTitle: { fontSize: 22, fontWeight: '700', color: '#531492' },
-  headerSubtitle: { fontSize: 13, color: '#A155B9', marginTop: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '700', color: colors.primary },
+  headerSubtitle: { fontSize: 13, color: colors.accent, marginTop: 2 },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.card,
     marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 4,
@@ -227,52 +235,52 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#53149233',
-    shadowColor: '#531492',
+    borderColor: colors.primary + '33',
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
   searchIcon: { fontSize: 16, marginRight: 8 },
-  searchText: { fontSize: 15, color: '#999' },
-  menuIconBtn: { 
+  searchText: { fontSize: 15, color: colors.textSecondary },
+  menuIconBtn: {
     padding: 4, paddingHorizontal: 12,
-    justifyContent: 'center', alignItems: 'center' 
+    justifyContent: 'center', alignItems: 'center'
   },
-  menuIconText: { fontSize: 24, fontWeight: '700', color: '#531492' },
+  menuIconText: { fontSize: 24, fontWeight: '700', color: colors.primary },
   dropdownMenu: {
     position: 'absolute', top: 54, right: 0, width: 170,
-    backgroundColor: '#fff', borderRadius: 16,
-    shadowColor: '#531492', shadowOffset: { width: 0, height: 8 },
+    backgroundColor: colors.menuBg, borderRadius: 16,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12, shadowRadius: 16, elevation: 12,
     zIndex: 20, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#F5E8FA',
+    borderWidth: 1, borderColor: colors.border,
   },
-  menuItem: { 
-    flexDirection: 'row', alignItems: 'center', 
-    paddingVertical: 16, paddingHorizontal: 16 
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 16, paddingHorizontal: 16
   },
-  menuItemLogout: { 
-    flexDirection: 'row', alignItems: 'center', 
+  menuItemLogout: {
+    flexDirection: 'row', alignItems: 'center',
     paddingVertical: 16, paddingHorizontal: 16,
-    backgroundColor: '#fff'
+    backgroundColor: colors.menuBg
   },
   menuItemIcon: { fontSize: 16, marginRight: 12 },
-  menuItemText: { fontSize: 15, fontWeight: '700', color: '#531492' },
+  menuItemText: { fontSize: 15, fontWeight: '700', color: colors.menuItemText },
   menuItemTextLogout: { fontSize: 15, fontWeight: '700', color: '#E53935' },
-  menuDivider: { height: 1, backgroundColor: '#F5E8FA' },
+  menuDivider: { height: 1, backgroundColor: colors.border },
   allBooksCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
     borderRadius: 14, padding: 16, marginBottom: 12,
-    borderLeftWidth: 4, borderLeftColor: '#531492',
-    shadowColor: '#531492', shadowOffset: { width: 0, height: 2 },
+    borderLeftWidth: 4, borderLeftColor: colors.primary,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
   },
   collectionCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
     borderRadius: 14, padding: 16, marginBottom: 12, borderLeftWidth: 4,
-    shadowColor: '#531492', shadowOffset: { width: 0, height: 2 },
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
   },
   collectionIcon: {
@@ -281,11 +289,11 @@ const styles = StyleSheet.create({
   },
   collectionIconText: { fontSize: 22, fontWeight: '700' },
   collectionInfo: { flex: 1 },
-  collectionName: { fontSize: 17, fontWeight: '600', color: '#1A1A2E' },
-  collectionCount: { fontSize: 13, color: '#888', marginTop: 2 },
+  collectionName: { fontSize: 17, fontWeight: '600', color: colors.text },
+  collectionCount: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
   collectionArrow: { fontSize: 28, fontWeight: '300' },
   emptyContainer: { alignItems: 'center', marginTop: 60, paddingHorizontal: 30 },
   emptyIcon: { fontSize: 52, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginBottom: 8 },
-  emptySubtitle: { fontSize: 15, color: '#888', textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: colors.text, marginBottom: 8 },
+  emptySubtitle: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
 });

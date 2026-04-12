@@ -5,11 +5,15 @@ import * as AuthSession from 'expo-auth-session';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../utils/supabase';
+import { useTheme } from '../contexts/ThemeContext';
+import { StatusBar } from 'react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
+  const { colors, isDark } = useTheme();
+  const styles = getStyles(colors);
 
   const handleGoogleLogin = async () => {
     try {
@@ -73,6 +77,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <Text style={styles.title}>Biblioteczka Leniwców 🦥</Text>
       <Text style={styles.subtitle}>Log in slowly to your shared library...</Text>
 
@@ -89,29 +94,29 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors: any) => StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#FDF8FF',
+    backgroundColor: colors.background,
     alignItems: 'center',
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#531492',
+    color: colors.primary,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
-    color: '#A155B9',
+    color: colors.accent,
     marginBottom: 40,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#531492',
+    backgroundColor: colors.primary,
     padding: 15,
     borderRadius: 12,
     width: '100%',

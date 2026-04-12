@@ -10,6 +10,8 @@ import { supabase } from '../utils/supabase';
 import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
 import { useBookUpload } from '../hooks/useBookUpload';
+import { useTheme } from '../contexts/ThemeContext';
+import { StatusBar } from 'react-native';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Library'>;
@@ -41,8 +43,10 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const [aiSearchMode, setAiSearchMode] = useState(false);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<Book[] | null>(null);
+  const { colors, isDark } = useTheme();
 
   const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchBooks());
+  const styles = getStyles(colors, isDark);
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<TextInput>(null);
@@ -91,7 +95,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
       const q = searchQuery.toLowerCase();
       const filtered = allBooks.filter(b =>
         b.title?.toLowerCase().includes(q) ||
-        b.title_pl?.toLowerCase().includes(q) ||
+        b.alt_title?.toLowerCase().includes(q) ||
         b.author?.toLowerCase().includes(q) ||
         b.genre?.toLowerCase().includes(q) ||
         b.moods?.some(m => m.toLowerCase().includes(q)) ||
@@ -157,12 +161,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.searchBar}>
         <TextInput
           ref={searchInputRef}
           style={styles.searchInput}
           placeholder={aiSearchMode ? '✨ Describe what you want to read...' : '🔍 Search title, author, genre, mood...'}
-          placeholderTextColor="#AAA"
+          placeholderTextColor={isDark ? '#888' : '#AAA'}
           value={searchQuery}
           onChangeText={setSearchQuery}
           onSubmitEditing={aiSearchMode ? handleAiSearch : undefined}
@@ -209,7 +214,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
           keyExtractor={item => item.id}
           renderItem={renderBook}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBooks(); }} tintColor="#531492" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBooks(); }} tintColor={colors.primary} />}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>📭</Text>
@@ -244,80 +249,86 @@ export default function LibraryScreen({ navigation, route }: Props) {
 const PURPLE_MAIN = '#531492';
 const PINK_ACCENT = '#E80F88';
 
-const styles = StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   uploadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(83, 20, 146, 0.7)',
+    backgroundColor: isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(83, 20, 146, 0.75)',
     justifyContent: 'center', alignItems: 'center',
     zIndex: 100, elevation: 100,
   },
   uploadingText: {
     color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 16
   },
-  safe: { flex: 1, backgroundColor: '#FDF8FF' },
+  safe: { flex: 1, backgroundColor: colors.background },
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
+    backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   searchInput: {
-    flex: 1, height: 42, backgroundColor: '#F0F5F2', borderRadius: 12,
-    paddingHorizontal: 14, fontSize: 14, color: '#1A1A2E',
+    flex: 1, height: 42, backgroundColor: colors.inputBg, borderRadius: 12,
+    paddingHorizontal: 14, fontSize: 14, color: colors.text,
   },
   aiToggle: {
-    width: 44, height: 42, borderRadius: 12, backgroundColor: '#F0F5F2',
+    width: 44, height: 42, borderRadius: 12, backgroundColor: colors.inputBg,
     justifyContent: 'center', alignItems: 'center',
   },
-  aiToggleActive: { backgroundColor: PINK_ACCENT },
-  aiToggleText: { fontWeight: '700', fontSize: 13, color: '#888' },
+  aiToggleActive: { backgroundColor: colors.accent },
+  aiToggleText: { fontWeight: '700', fontSize: 13, color: colors.textSecondary },
   aiToggleTextActive: { color: '#fff' },
   aiBar: {
-    backgroundColor: '#FFF5F2', paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: isDark ? '#1D122B' : '#FFF5F2', 
+    paddingHorizontal: 16, paddingVertical: 10,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  aiHint: { fontSize: 12, color: PINK_ACCENT, flex: 1 },
+  aiHint: { fontSize: 12, color: colors.accent, flex: 1 },
   aiActions: { flexDirection: 'row', gap: 8 },
   aiSearchBtn: {
-    backgroundColor: PINK_ACCENT, paddingHorizontal: 16, paddingVertical: 7,
+    backgroundColor: colors.accent, paddingHorizontal: 16, paddingVertical: 7,
     borderRadius: 20, minWidth: 70, alignItems: 'center',
   },
   aiSearchBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   clearBtn: {
-    backgroundColor: '#FDE4DD', paddingHorizontal: 16, paddingVertical: 7,
+    backgroundColor: isDark ? '#3A2552' : '#FDE4DD', 
+    paddingHorizontal: 16, paddingVertical: 7,
     borderRadius: 20,
   },
-  clearBtnText: { color: PINK_ACCENT, fontWeight: '600', fontSize: 13 },
-  aiResultsHeader: { backgroundColor: '#F5E8FA', paddingHorizontal: 16, paddingVertical: 8 },
-  aiResultsLabel: { color: PURPLE_MAIN, fontWeight: '600', fontSize: 13 },
+  clearBtnText: { color: colors.accent, fontWeight: '600', fontSize: 13 },
+  aiResultsHeader: { 
+    backgroundColor: isDark ? '#1D122B' : '#F5E8FA', 
+    paddingHorizontal: 16, paddingVertical: 8 
+  },
+  aiResultsLabel: { color: colors.primary, fontWeight: '600', fontSize: 13 },
   bookCard: {
-    flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14,
+    flexDirection: 'row', backgroundColor: colors.card, borderRadius: 14,
     marginBottom: 12, padding: 14, overflow: 'hidden',
-    shadowColor: PURPLE_MAIN, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1, shadowRadius: 6, elevation: 2,
   },
   bookCardLeft: { marginRight: 14 },
   bookCover: {
-    width: 52, height: 72, borderRadius: 8, backgroundColor: PURPLE_MAIN + '22',
+    width: 52, height: 72, borderRadius: 8, backgroundColor: colors.primary + '22',
     justifyContent: 'center', alignItems: 'center',
   },
-  bookCoverInitial: { fontSize: 24, fontWeight: '700', color: PURPLE_MAIN },
+  bookCoverInitial: { fontSize: 24, fontWeight: '700', color: colors.primary },
   bookInfo: { flex: 1 },
-  bookTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
-  bookAuthor: { fontSize: 13, color: '#666', marginBottom: 4 },
-  bookGenre: { fontSize: 12, color: PURPLE_MAIN, fontWeight: '600', marginBottom: 6 },
+  bookTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 2 },
+  bookAuthor: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
+  bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '600', marginBottom: 6 },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   moodChip: {
-    backgroundColor: '#F5E8FA', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+    backgroundColor: isDark ? '#3A2552' : '#F5E8FA', 
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
   },
-  moodChipText: { fontSize: 11, color: '#71229F', fontWeight: '600' },
+  moodChipText: { fontSize: 11, color: isDark ? '#E9D5FF' : '#71229F', fontWeight: '600' },
   empty: { alignItems: 'center', marginTop: 60 },
   emptyIcon: { fontSize: 44, marginBottom: 12 },
-  emptyText: { fontSize: 15, color: '#888', textAlign: 'center' },
+  emptyText: { fontSize: 15, color: colors.textSecondary, textAlign: 'center' },
   fab: {
     position: 'absolute', bottom: 24, right: 24, width: 58, height: 58,
-    borderRadius: 29, backgroundColor: PURPLE_MAIN, justifyContent: 'center',
+    borderRadius: 29, backgroundColor: colors.primary, justifyContent: 'center',
     alignItems: 'center', elevation: 5,
-    shadowColor: PURPLE_MAIN, shadowOffset: { width: 0, height: 4 },
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8,
   },
   fabText: { color: '#fff', fontSize: 28, lineHeight: 32 },

@@ -8,6 +8,7 @@ import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import * as SecureStore from 'expo-secure-store';
 import SyncModal from './SyncModal';
+import { useBookUpload } from '../hooks/useBookUpload';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Collections'>;
@@ -25,6 +26,8 @@ export default function CollectionsScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchCollections());
 
   const fetchCollections = async () => {
     const { data, error } = await supabase
@@ -112,6 +115,11 @@ export default function CollectionsScreen({ navigation }: Props) {
           </TouchableOpacity>
           {menuVisible && (
             <View style={styles.dropdownMenu}>
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); startUpload(); }}>
+                <Text style={styles.menuItemIcon}>📚</Text>
+                <Text style={styles.menuItemText}>Upload Book</Text>
+              </TouchableOpacity>
+              <View style={styles.menuDivider} />
               <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); setSyncModalVisible(true); }}>
                 <Text style={styles.menuItemIcon}>🔄</Text>
                 <Text style={styles.menuItemText}>Sync Library</Text>
@@ -174,11 +182,28 @@ export default function CollectionsScreen({ navigation }: Props) {
         onClose={() => setSyncModalVisible(false)}
         onSyncComplete={() => { setSyncModalVisible(false); fetchCollections(); }}
       />
+      {uploadNode}
+
+      {isUploading && (
+        <View style={styles.uploadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.uploadingText}>Uploading & Processing Book...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(83, 20, 146, 0.7)',
+    justifyContent: 'center', alignItems: 'center',
+    zIndex: 100, elevation: 100,
+  },
+  uploadingText: {
+    color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 16
+  },
   safe: { flex: 1, backgroundColor: '#FDF8FF' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

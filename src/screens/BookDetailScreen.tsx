@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
@@ -13,11 +13,12 @@ type Props = {
 type Book = {
   id: string;
   title: string;
-  title_pl?: string | null;
   author: string;
   genre: string;
   description: string;
   description_pl?: string | null;
+  goodreads_url?: string;
+  lubimyczytac_url?: string;
   moods: string[];
 };
 
@@ -74,19 +75,12 @@ export default function BookDetailScreen({ route }: Props) {
     );
   }
 
-  const primaryTitle   = book.title;
-  const secondaryTitle = book.title_pl;
-  const showSecondary  = secondaryTitle && secondaryTitle !== primaryTitle;
-  
   const displayDescription = showPolish && book.description_pl ? book.description_pl : book.description;
 
   return (
     <ScrollView style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>{primaryTitle}</Text>
-        {showSecondary && (
-           <Text style={styles.subtitle}>{secondaryTitle}</Text>
-        )}
+        <Text style={styles.title}>{book.title}</Text>
         <Text style={styles.author}>by {book.author}</Text>
         
         <View style={styles.tagsContainer}>
@@ -128,6 +122,24 @@ export default function BookDetailScreen({ route }: Props) {
               {sendingEmail ? 'Sending...' : 'Send to Kindle'}
             </Text>
           </TouchableOpacity>
+
+          {book.goodreads_url ? (
+            <TouchableOpacity 
+              style={[styles.secondaryButton, { borderColor: '#E9E5CE' }]} 
+              onPress={() => Linking.openURL(book.goodreads_url!)}
+            >
+              <Text style={[styles.secondaryButtonText, { color: '#82713D' }]}>📚 Open in Goodreads</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {book.lubimyczytac_url ? (
+            <TouchableOpacity 
+              style={[styles.secondaryButton, { borderColor: '#F5E8E8' }]} 
+              onPress={() => Linking.openURL(book.lubimyczytac_url!)}
+            >
+              <Text style={[styles.secondaryButtonText, { color: '#D32F2F' }]}>📖 Open in LubimyCzytać</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     </ScrollView>

@@ -9,6 +9,7 @@ import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
+import { useBookUpload } from '../hooks/useBookUpload';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Library'>;
@@ -18,11 +19,12 @@ type Props = {
 type Book = {
   id: string;
   title: string;
-  title_pl?: string | null;
   author: string;
   genre: string;
   description: string;
   description_pl?: string | null;
+  goodreads_url?: string;
+  lubimyczytac_url?: string;
   moods: string[];
   folder_tags: string[];
 };
@@ -39,7 +41,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const [aiSearchMode, setAiSearchMode] = useState(false);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<Book[] | null>(null);
-  const [uploading, setUploading] = useState(false);
+
+  const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchBooks());
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<TextInput>(null);
@@ -120,46 +123,9 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setSearchQuery('');
   };
 
-  const handleUpload = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/epub+zip', 'application/pdf'],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      const file = result.assets[0];
-
-      const providerToken = await SecureStore.getItemAsync('google_provider_token');
-      if (!providerToken) {
-        Alert.alert('Session Error', 'Missing Google token. Please logout and login again.');
-        return;
-      }
-
-      setUploading(true);
-      const { uploadFileToDrive } = require('../utils/drive');
-      const driveData = await uploadFileToDrive(file.uri, file.name, file.mimeType || 'application/epub+zip', providerToken);
-
-      const folderTags = collectionFilter ? [collectionFilter] : [];
-      const { error } = await supabase.functions.invoke('process-ebook', {
-        body: { driveFileId: driveData.id, fileName: file.name, folderTags }
-      });
-
-      if (error) Alert.alert('Error', error.message);
-      else { Alert.alert('Success', `Uploaded ${file.name}!`); fetchBooks(); }
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const booksToShow = aiResults ?? displayedBooks;
 
   const renderBook = ({ item }: { item: Book }) => {
-    const primaryTitle = item.title;
-    const secondaryTitle = item.title_pl;
-    const showSecondary = secondaryTitle && secondaryTitle !== primaryTitle;
-
     return (
       <TouchableOpacity
         style={styles.bookCard}
@@ -168,14 +134,11 @@ export default function LibraryScreen({ navigation, route }: Props) {
       >
         <View style={styles.bookCardLeft}>
           <View style={styles.bookCover}>
-            <Text style={styles.bookCoverInitial}>{primaryTitle?.[0] ?? '?'}</Text>
+            <Text style={styles.bookCoverInitial}>{item.title?.[0] ?? '?'}</Text>
           </View>
         </View>
         <View style={styles.bookInfo}>
-          <Text style={styles.bookTitle} numberOfLines={2}>{primaryTitle}</Text>
-          {showSecondary && (
-            <Text style={styles.bookTitleSecondary} numberOfLines={1}>{secondaryTitle}</Text>
-          )}
+          <Text style={styles.bookTitle} numberOfLines={2}>{item.title}</Text>
           <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
           {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
           {item.moods?.length > 0 && (
@@ -259,12 +222,21 @@ export default function LibraryScreen({ navigation, route }: Props) {
       )}
 
       <TouchableOpacity
-        style={[styles.fab, uploading && { backgroundColor: '#AAA' }]}
-        onPress={handleUpload}
-        disabled={uploading}
+        style={[styles.fab, isUploading && { backgroundColor: '#AAA' }]}
+        onPress={() => startUpload(collectionFilter)}
+        disabled={isUploading}
       >
-        {uploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.fabText}>+</Text>}
+        {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.fabText}>+</Text>}
       </TouchableOpacity>
+
+      {uploadNode}
+      
+      {isUploading && (
+        <View style={styles.uploadingOverlay}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.uploadingText}>Uploading & Processing...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -273,6 +245,15 @@ const PURPLE_MAIN = '#531492';
 const PINK_ACCENT = '#E80F88';
 
 const styles = StyleSheet.create({
+  uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(83, 20, 146, 0.7)',
+    justifyContent: 'center', alignItems: 'center',
+    zIndex: 100, elevation: 100,
+  },
+  uploadingText: {
+    color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 16
+  },
   safe: { flex: 1, backgroundColor: '#FDF8FF' },
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -322,7 +303,6 @@ const styles = StyleSheet.create({
   bookCoverInitial: { fontSize: 24, fontWeight: '700', color: PURPLE_MAIN },
   bookInfo: { flex: 1 },
   bookTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
-  bookTitleSecondary: { fontSize: 12, color: '#A155B9', fontStyle: 'italic', marginBottom: 4 },
   bookAuthor: { fontSize: 13, color: '#666', marginBottom: 4 },
   bookGenre: { fontSize: 12, color: PURPLE_MAIN, fontWeight: '600', marginBottom: 6 },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },

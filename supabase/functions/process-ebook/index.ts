@@ -53,6 +53,7 @@ STEP 1 — LANGUAGE DETECTION & ORIGINAL TITLE RESOLUTION:
 
 STEP 2 — BILINGUAL METADATA:
 From your knowledge of the resolved book/work, produce:
+- Title detected ("file_title") - title detected from the filename
 - English title ("title") and English description ("description")
 - Polish title ("title_pl") — the official Polish translation title if one exists, or a direct Polish translation if not
 - Polish description ("description_pl") — a natural Polish language summary of the same quality as the English one
@@ -61,6 +62,7 @@ From your knowledge of the resolved book/work, produce:
 
 Output a single JSON object:
 {
+  "file_title": "Title detected from the filename",
   "detected_language": "Polish | English | other",
   "title": "Original/English title",
   "title_pl": "Polish translation title (official if it exists)",
@@ -90,19 +92,24 @@ Output a single JSON object:
 
     const metadata = JSON.parse(metaData.choices[0].message.content);
 
-    const title: string        = metadata.title        || fileName;
-    const title_pl: string     = metadata.title_pl     || title;
-    const author: string       = metadata.author       || 'Unknown';
-    const genre: string        = metadata.genre        || 'Unknown';
-    const description: string  = metadata.description  || 'No description available.';
+    const file_title: string = metadata.file_title || fileName;
+    const title: string = metadata.title || fileName;
+    const title_pl: string = metadata.title_pl || title;
+    const author: string = metadata.author || 'Unknown';
+    const genre: string = metadata.genre || 'Unknown';
+    const description: string = metadata.description || 'No description available.';
     const description_pl: string = metadata.description_pl || description;
-    const moods: string[]      = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
-    const confidence: string   = metadata.confidence   || 'low';
+    const moods: string[] = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
+    const confidence: string = metadata.confidence || 'low';
+    let title_alt: string = '';
+    const lubimyczytac_url: string = metadata.lubimyczytac_url || '';
+    const goodreads_url: string = metadata.goodreads_url || '';
 
     console.log(`Processed: "${title}" / "${title_pl}" by ${author} [confidence: ${confidence}]`);
 
     // 3. Embedding — include both language versions so AI search works in EN and PL
     const embeddingText = [
+      `File title: ${file_title}.`,
       `Title: ${title}.`,
       `Polish title: ${title_pl}.`,
       `Author: ${author}.`,
@@ -128,14 +135,18 @@ Output a single JSON object:
       throw new Error(`Embedding call failed: ${JSON.stringify(embedData)}`);
     }
 
+    if (file_title !== title) {
+      title_alt = title;
+    }
+
     const embedding = embedData.data[0].embedding;
 
     // 4. Upsert to Supabase
     const { data: insertedBook, error: insertError } = await supabaseClient
       .from('books')
       .upsert({
-        title,
-        title_pl,
+        title: file_title,
+        alt_title: title_alt,
         author,
         genre,
         description,
@@ -144,7 +155,7 @@ Output a single JSON object:
         folder_tags: folderTags,
         drive_file_id: driveFileId,
         embedding,
-        user_id: user.id,
+        user_id: user.id
       }, { onConflict: 'drive_file_id' })
       .select()
       .single();

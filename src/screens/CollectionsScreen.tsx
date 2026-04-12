@@ -108,7 +108,7 @@ export default function CollectionsScreen({ navigation }: Props) {
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.menuIconBtn} onPress={() => setMenuVisible(!menuVisible)} activeOpacity={0.7}>
-            <Text style={styles.menuIconText}>•••</Text>
+            <Text style={styles.menuIconText}>⋮</Text>
           </TouchableOpacity>
           {menuVisible && (
             <View style={styles.dropdownMenu}>
@@ -212,11 +212,10 @@ const styles = StyleSheet.create({
   searchIcon: { fontSize: 16, marginRight: 8 },
   searchText: { fontSize: 15, color: '#999' },
   menuIconBtn: { 
-    width: 44, height: 44, borderRadius: 22, 
-    backgroundColor: '#F5E8FA',
+    padding: 4, paddingHorizontal: 12,
     justifyContent: 'center', alignItems: 'center' 
   },
-  menuIconText: { fontSize: 16, fontWeight: '700', color: '#531492', letterSpacing: 1.5, marginLeft: 2 },
+  menuIconText: { fontSize: 24, fontWeight: '700', color: '#531492' },
   dropdownMenu: {
     position: 'absolute', top: 54, right: 0, width: 170,
     backgroundColor: '#fff', borderRadius: 16,
@@ -232,7 +231,7 @@ const styles = StyleSheet.create({
   menuItemLogout: { 
     flexDirection: 'row', alignItems: 'center', 
     paddingVertical: 16, paddingHorizontal: 16,
-    backgroundColor: '#FFF2F2'
+    backgroundColor: '#fff'
   },
   menuItemIcon: { fontSize: 16, marginRight: 12 },
   menuItemText: { fontSize: 15, fontWeight: '700', color: '#531492' },

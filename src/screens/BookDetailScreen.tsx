@@ -96,8 +96,8 @@ export default function BookDetailScreen({ route }: Props) {
             </View>
           )}
           {book.moods?.map((mood, idx) => (
-            <View key={idx} style={[styles.tag, { backgroundColor: '#e8f4f8' }]}>
-              <Text style={[styles.tagText, { color: '#0083B0' }]}>{mood}</Text>
+            <View key={idx} style={styles.tag}>
+              <Text style={styles.tagText}>{mood}</Text>
             </View>
           ))}
         </View>
@@ -134,10 +134,13 @@ export default function BookDetailScreen({ route }: Props) {
   );
 }
 
+const PURPLE_MAIN = '#531492';
+const PINK_ACCENT = '#E80F88';
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FDF8FF',
   },
   content: {
     padding: 20,
@@ -145,11 +148,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
+    color: PURPLE_MAIN,
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 18,
-    color: '#888',
+    color: '#A155B9',
     fontStyle: 'italic',
     marginBottom: 8,
   },
@@ -165,13 +169,13 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   tag: {
-    backgroundColor: '#f0e6fa',
+    backgroundColor: '#F5E8FA',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
   },
   tagText: {
-    color: '#9b59b6',
+    color: '#71229F',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -187,7 +191,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   translateText: {
-    color: '#4285F4',
+    color: PINK_ACCENT,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -201,9 +205,9 @@ const styles = StyleSheet.create({
     gap: 15,
   },
   primaryButton: {
-    backgroundColor: '#4285F4',
+    backgroundColor: PURPLE_MAIN,
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
   },
   buttonText: {
@@ -214,13 +218,13 @@ const styles = StyleSheet.create({
   secondaryButton: {
     backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#4285F4',
+    borderColor: PINK_ACCENT,
   },
   secondaryButtonText: {
-    color: '#4285F4',
+    color: PINK_ACCENT,
     fontSize: 16,
     fontWeight: 'bold',
   }

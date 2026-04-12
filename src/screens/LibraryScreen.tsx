@@ -239,14 +239,14 @@ export default function LibraryScreen({ navigation, route }: Props) {
       )}
 
       {loading ? (
-        <ActivityIndicator size="large" color="#6C63FF" style={{ marginTop: 40 }} />
+        <ActivityIndicator size="large" color="#531492" style={{ marginTop: 40 }} />
       ) : (
         <FlatList
           data={booksToShow}
           keyExtractor={item => item.id}
           renderItem={renderBook}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBooks(); }} tintColor="#6C63FF" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBooks(); }} tintColor="#531492" />}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyIcon}>📭</Text>
@@ -269,74 +269,75 @@ export default function LibraryScreen({ navigation, route }: Props) {
   );
 }
 
-const PURPLE = '#6C63FF';
+const PURPLE_MAIN = '#531492';
+const PINK_ACCENT = '#E80F88';
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F7F8FC' },
+  safe: { flex: 1, backgroundColor: '#FDF8FF' },
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 16, paddingVertical: 12,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
   },
   searchInput: {
-    flex: 1, height: 42, backgroundColor: '#F0F0F7', borderRadius: 12,
+    flex: 1, height: 42, backgroundColor: '#F0F5F2', borderRadius: 12,
     paddingHorizontal: 14, fontSize: 14, color: '#1A1A2E',
   },
   aiToggle: {
-    width: 44, height: 42, borderRadius: 12, backgroundColor: '#F0F0F7',
+    width: 44, height: 42, borderRadius: 12, backgroundColor: '#F0F5F2',
     justifyContent: 'center', alignItems: 'center',
   },
-  aiToggleActive: { backgroundColor: PURPLE },
+  aiToggleActive: { backgroundColor: PINK_ACCENT },
   aiToggleText: { fontWeight: '700', fontSize: 13, color: '#888' },
   aiToggleTextActive: { color: '#fff' },
   aiBar: {
-    backgroundColor: '#F0EFFE', paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: '#FFF5F2', paddingHorizontal: 16, paddingVertical: 10,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  aiHint: { fontSize: 12, color: '#6C63FF', flex: 1 },
+  aiHint: { fontSize: 12, color: PINK_ACCENT, flex: 1 },
   aiActions: { flexDirection: 'row', gap: 8 },
   aiSearchBtn: {
-    backgroundColor: PURPLE, paddingHorizontal: 16, paddingVertical: 7,
+    backgroundColor: PINK_ACCENT, paddingHorizontal: 16, paddingVertical: 7,
     borderRadius: 20, minWidth: 70, alignItems: 'center',
   },
   aiSearchBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   clearBtn: {
-    backgroundColor: '#E0E0F7', paddingHorizontal: 16, paddingVertical: 7,
+    backgroundColor: '#FDE4DD', paddingHorizontal: 16, paddingVertical: 7,
     borderRadius: 20,
   },
-  clearBtnText: { color: PURPLE, fontWeight: '600', fontSize: 13 },
-  aiResultsHeader: { backgroundColor: '#EDE9FF', paddingHorizontal: 16, paddingVertical: 8 },
-  aiResultsLabel: { color: PURPLE, fontWeight: '600', fontSize: 13 },
+  clearBtnText: { color: PINK_ACCENT, fontWeight: '600', fontSize: 13 },
+  aiResultsHeader: { backgroundColor: '#F5E8FA', paddingHorizontal: 16, paddingVertical: 8 },
+  aiResultsLabel: { color: PURPLE_MAIN, fontWeight: '600', fontSize: 13 },
   bookCard: {
     flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14,
     marginBottom: 12, padding: 14, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+    shadowColor: PURPLE_MAIN, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
   },
   bookCardLeft: { marginRight: 14 },
   bookCover: {
-    width: 52, height: 72, borderRadius: 8, backgroundColor: PURPLE + '22',
+    width: 52, height: 72, borderRadius: 8, backgroundColor: PURPLE_MAIN + '22',
     justifyContent: 'center', alignItems: 'center',
   },
-  bookCoverInitial: { fontSize: 24, fontWeight: '700', color: PURPLE },
+  bookCoverInitial: { fontSize: 24, fontWeight: '700', color: PURPLE_MAIN },
   bookInfo: { flex: 1 },
   bookTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A2E', marginBottom: 2 },
-  bookTitleSecondary: { fontSize: 12, color: '#AAA', fontStyle: 'italic', marginBottom: 4 },
+  bookTitleSecondary: { fontSize: 12, color: '#A155B9', fontStyle: 'italic', marginBottom: 4 },
   bookAuthor: { fontSize: 13, color: '#666', marginBottom: 4 },
-  bookGenre: { fontSize: 12, color: PURPLE, fontWeight: '600', marginBottom: 6 },
+  bookGenre: { fontSize: 12, color: PURPLE_MAIN, fontWeight: '600', marginBottom: 6 },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   moodChip: {
-    backgroundColor: '#F0EFFE', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+    backgroundColor: '#F5E8FA', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
   },
-  moodChipText: { fontSize: 11, color: PURPLE, fontWeight: '500' },
+  moodChipText: { fontSize: 11, color: '#71229F', fontWeight: '600' },
   empty: { alignItems: 'center', marginTop: 60 },
   emptyIcon: { fontSize: 44, marginBottom: 12 },
   emptyText: { fontSize: 15, color: '#888', textAlign: 'center' },
   fab: {
     position: 'absolute', bottom: 24, right: 24, width: 58, height: 58,
-    borderRadius: 29, backgroundColor: PURPLE, justifyContent: 'center',
+    borderRadius: 29, backgroundColor: PURPLE_MAIN, justifyContent: 'center',
     alignItems: 'center', elevation: 5,
-    shadowColor: PURPLE, shadowOffset: { width: 0, height: 4 },
+    shadowColor: PURPLE_MAIN, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8,
   },
   fabText: { color: '#fff', fontSize: 28, lineHeight: 32 },

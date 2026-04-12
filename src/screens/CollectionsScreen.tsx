@@ -24,6 +24,7 @@ export default function CollectionsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const fetchCollections = async () => {
     const { data, error } = await supabase
@@ -69,8 +70,8 @@ export default function CollectionsScreen({ navigation }: Props) {
   };
 
   const COLLECTION_COLORS = [
-    '#6C63FF', '#FF6584', '#43A047', '#FB8C00', '#00ACC1',
-    '#8E24AA', '#E53935', '#3949AB', '#00897B', '#C0CA33',
+    '#531492', '#7B2CBF', '#9D4EDD', '#C77DFF',
+    '#E0AAFF', '#E80F88', '#FF4191', '#FF70A6'
   ];
 
   const renderCollection = ({ item, index }: { item: Collection; index: number }) => {
@@ -102,16 +103,26 @@ export default function CollectionsScreen({ navigation }: Props) {
       <StatusBar barStyle="dark-content" />
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Family Library</Text>
+          <Text style={styles.headerTitle}>Biblioteczka Leniwców 🦥</Text>
           <Text style={styles.headerSubtitle}>{totalBooks} books in your collection</Text>
         </View>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.syncBtn} onPress={() => setSyncModalVisible(true)}>
-            <Text style={styles.syncBtnText}>🔄 Sync</Text>
+          <TouchableOpacity style={styles.menuIconBtn} onPress={() => setMenuVisible(!menuVisible)} activeOpacity={0.7}>
+            <Text style={styles.menuIconText}>•••</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>Logout</Text>
-          </TouchableOpacity>
+          {menuVisible && (
+            <View style={styles.dropdownMenu}>
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); setSyncModalVisible(true); }}>
+                <Text style={styles.menuItemIcon}>🔄</Text>
+                <Text style={styles.menuItemText}>Sync Library</Text>
+              </TouchableOpacity>
+              <View style={styles.menuDivider} />
+              <TouchableOpacity style={styles.menuItemLogout} onPress={() => { setMenuVisible(false); handleLogout(); }}>
+                <Text style={styles.menuItemIcon}>🚪</Text>
+                <Text style={styles.menuItemTextLogout}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
 
@@ -125,26 +136,26 @@ export default function CollectionsScreen({ navigation }: Props) {
       </TouchableOpacity>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#6C63FF" style={{ marginTop: 40 }} />
+        <ActivityIndicator size="large" color="#531492" style={{ marginTop: 40 }} />
       ) : (
         <FlatList
           data={collections}
           keyExtractor={(item) => item.name}
           renderItem={renderCollection}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6C63FF" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#531492" />}
           ListHeaderComponent={
             <TouchableOpacity
               style={styles.allBooksCard}
               onPress={() => navigation.navigate('Library', { collectionFilter: null })}
             >
-              <View style={[styles.collectionIcon, { backgroundColor: '#6C63FF22' }]}>
-                <Text style={[styles.collectionIconText, { color: '#6C63FF' }]}>📚</Text>
+              <View style={[styles.collectionIcon, { backgroundColor: '#53149222' }]}>
+                <Text style={[styles.collectionIconText, { color: '#531492' }]}>📚</Text>
               </View>
               <View style={styles.collectionInfo}>
                 <Text style={styles.collectionName}>All Books</Text>
                 <Text style={styles.collectionCount}>{totalBooks} books</Text>
               </View>
-              <Text style={[styles.collectionArrow, { color: '#6C63FF' }]}>›</Text>
+              <Text style={[styles.collectionArrow, { color: '#531492' }]}>›</Text>
             </TouchableOpacity>
           }
           ListEmptyComponent={
@@ -168,16 +179,17 @@ export default function CollectionsScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F7F8FC' },
+  safe: { flex: 1, backgroundColor: '#FDF8FF' },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingVertical: 16, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#EFEFEF',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
+    shadowOpacity: 0.06, shadowRadius: 4, elevation: 10,
+    zIndex: 10,
   },
-  headerTitle: { fontSize: 22, fontWeight: '700', color: '#1A1A2E' },
-  headerSubtitle: { fontSize: 13, color: '#888', marginTop: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '700', color: '#531492' },
+  headerSubtitle: { fontSize: 13, color: '#A155B9', marginTop: 2 },
   headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   searchBar: {
     flexDirection: 'row',
@@ -190,8 +202,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#EFEFEF',
-    shadowColor: '#000',
+    borderColor: '#53149233',
+    shadowColor: '#531492',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -199,28 +211,45 @@ const styles = StyleSheet.create({
   },
   searchIcon: { fontSize: 16, marginRight: 8 },
   searchText: { fontSize: 15, color: '#999' },
-  syncBtn: {
-    backgroundColor: '#6C63FF', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20,
+  menuIconBtn: { 
+    width: 44, height: 44, borderRadius: 22, 
+    backgroundColor: '#F5E8FA',
+    justifyContent: 'center', alignItems: 'center' 
   },
-  syncBtnText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  logoutBtn: {
-    backgroundColor: '#FFF0F0', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20,
+  menuIconText: { fontSize: 16, fontWeight: '700', color: '#531492', letterSpacing: 1.5, marginLeft: 2 },
+  dropdownMenu: {
+    position: 'absolute', top: 54, right: 0, width: 170,
+    backgroundColor: '#fff', borderRadius: 16,
+    shadowColor: '#531492', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12, shadowRadius: 16, elevation: 12,
+    zIndex: 20, overflow: 'hidden',
+    borderWidth: 1, borderColor: '#F5E8FA',
   },
-  logoutBtnText: { color: '#E53935', fontWeight: '600', fontSize: 13 },
+  menuItem: { 
+    flexDirection: 'row', alignItems: 'center', 
+    paddingVertical: 16, paddingHorizontal: 16 
+  },
+  menuItemLogout: { 
+    flexDirection: 'row', alignItems: 'center', 
+    paddingVertical: 16, paddingHorizontal: 16,
+    backgroundColor: '#FFF2F2'
+  },
+  menuItemIcon: { fontSize: 16, marginRight: 12 },
+  menuItemText: { fontSize: 15, fontWeight: '700', color: '#531492' },
+  menuItemTextLogout: { fontSize: 15, fontWeight: '700', color: '#E53935' },
+  menuDivider: { height: 1, backgroundColor: '#F5E8FA' },
   allBooksCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     borderRadius: 14, padding: 16, marginBottom: 12,
-    borderLeftWidth: 4, borderLeftColor: '#6C63FF',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+    borderLeftWidth: 4, borderLeftColor: '#531492',
+    shadowColor: '#531492', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
   },
   collectionCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff',
     borderRadius: 14, padding: 16, marginBottom: 12, borderLeftWidth: 4,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 6, elevation: 2,
+    shadowColor: '#531492', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
   },
   collectionIcon: {
     width: 48, height: 48, borderRadius: 12,

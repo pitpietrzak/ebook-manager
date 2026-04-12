@@ -73,8 +73,8 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Family Ebooks</Text>
-      <Text style={styles.subtitle}>Manage your shared library on Google Drive</Text>
+      <Text style={styles.title}>Biblioteczka Leniwców 🦥</Text>
+      <Text style={styles.subtitle}>Log in slowly to your shared library...</Text>
 
       <TouchableOpacity 
         style={styles.button} 
@@ -94,25 +94,26 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#FDF8FF',
     alignItems: 'center',
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#333',
+    color: '#531492',
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
+    color: '#A155B9',
     marginBottom: 40,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: '#4285F4',
+    backgroundColor: '#531492',
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 12,
     width: '100%',
     alignItems: 'center',
   },

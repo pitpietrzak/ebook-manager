@@ -11,9 +11,11 @@ import { supabase } from '../utils/supabase';
 import * as SecureStore from 'expo-secure-store';
 import SyncModal from './SyncModal';
 import NotificationModal from '../components/NotificationModal';
+import IconPickerModal from '../components/IconPickerModal';
 import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
+import DynamicIcon from '../components/DynamicIcon';
 import { 
   Search, Plus, RefreshCw, Bell, ChevronRight, Layers, 
   Library, MoreVertical, Settings, User as UserIcon
@@ -33,11 +35,14 @@ type Collection = {
 
 export default function CollectionsScreen({ navigation }: Props) {
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [iconMap, setIconMap] = useState<Record<string, string>>({});
   const [totalBooks, setTotalBooks] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<{ name: string; index: number } | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const { colors, theme, isDark, toggleTheme, viewMode } = useTheme();
   const { profile, updateDisplayName } = useProfile();
@@ -92,6 +97,45 @@ export default function CollectionsScreen({ navigation }: Props) {
     setCollections(sorted);
     setLoading(false);
     setRefreshing(false);
+
+    // Fetch or suggest icons for each collection
+    fetchCollectionIcons(sorted.map(c => c.name));
+  };
+
+  const fetchCollectionIcons = async (names: string[]) => {
+    try {
+      // 1. Get existing icons from DB
+      const { data, error } = await supabase
+        .from('collection_icons')
+        .select('name, icon_name')
+        .in('name', names);
+      
+      if (error) throw error;
+
+      const newMap = { ...iconMap };
+      data?.forEach(row => {
+        newMap[row.name] = row.icon_name;
+      });
+      setIconMap(newMap);
+
+      // 2. For missing ones, trigger AI suggestion (sequentially to avoid overwhelming)
+      const missing = names.filter(name => !newMap[name] && name !== 'Uncategorised');
+      
+      for (const name of missing) {
+        try {
+          const { data: aiData, error: aiError } = await supabase.functions.invoke('suggest-icon', {
+            body: { name }
+          });
+          if (aiData?.icon_name) {
+            setIconMap(prev => ({ ...prev, [name]: aiData.icon_name }));
+          }
+        } catch (e) {
+          console.error(`Failed to get icon for ${name}:`, e);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch collection icons:', e);
+    }
   };
 
   useEffect(() => { fetchCollections(); }, []);
@@ -107,9 +151,31 @@ export default function CollectionsScreen({ navigation }: Props) {
   };
 
   const COLLECTION_COLORS = [
-    '#531492', '#7B2CBF', '#9D4EDD', '#C77DFF',
-    '#E0AAFF', '#E80F88', '#FF4191', '#FF70A6'
+    '#8B5CF6', '#D946EF', '#F43F5E', '#6366F1',
+    '#EC4899', '#3B82F6', '#06B6D4', '#10B981'
   ];
+
+  const handleIconSelect = async (iconName: string) => {
+    if (!editingCollection) return;
+    
+    const { name } = editingCollection;
+    
+    // 1. Update local state immediately
+    setIconMap(prev => ({ ...prev, [name]: iconName }));
+    setPickerVisible(false);
+
+    // 2. Persist to DB
+    try {
+      const { error } = await supabase
+        .from('collection_icons')
+        .upsert({ name, icon_name: iconName });
+      
+      if (error) throw error;
+    } catch (e) {
+      console.error('Failed to save icon:', e);
+      // Optional: rollback on error if you prefer
+    }
+  };
 
   const renderCollection = ({ item, index }: { item: Collection; index: number }) => {
     const isGrid = viewMode === 'grid';
@@ -121,10 +187,21 @@ export default function CollectionsScreen({ navigation }: Props) {
         onPress={() => navigation.navigate('Library', {
           collectionFilter: item.name === 'Uncategorised' ? '__uncategorised__' : item.name
         })}
+        onLongPress={() => {
+          if (item.name !== 'Uncategorised') {
+            setEditingCollection({ name: item.name, index });
+            setPickerVisible(true);
+          }
+        }}
+        delayLongPress={300}
         activeOpacity={0.75}
       >
-        <View style={[isGrid ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}>
-          <Layers size={isGrid ? 28 : 22} color={color} />
+        <View style={[isGrid ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '20' }]}>
+          <DynamicIcon 
+            name={item.name === 'Uncategorised' ? 'Layers' : iconMap[item.name] || 'Layers'} 
+            size={isGrid ? 28 : 22} 
+            color={color} 
+          />
         </View>
         <View style={!isGrid && styles.listInfo}>
           <Text style={isGrid ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
@@ -217,6 +294,14 @@ export default function CollectionsScreen({ navigation }: Props) {
         onClose={() => { setNotificationsVisible(false); fetchUnreadCount(); }}
         onSelectBook={(bookId) => navigation.navigate('BookDetail', { bookId })}
       />
+
+      <IconPickerModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        onSelect={handleIconSelect}
+        collectionName={editingCollection?.name || ''}
+        currentColor={editingCollection ? COLLECTION_COLORS[editingCollection.index % COLLECTION_COLORS.length] : colors.primary}
+      />
       
       <TouchableOpacity 
         style={styles.fab} 
@@ -271,17 +356,17 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    bottom: 30,
+    right: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
     zIndex: 99,

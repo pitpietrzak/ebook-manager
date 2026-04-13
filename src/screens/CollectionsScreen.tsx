@@ -52,6 +52,20 @@ export default function CollectionsScreen({ navigation }: Props) {
 
   useEffect(() => {
     fetchUnreadCount();
+
+    // Subscribe to realtime changes for notifications
+    const channel = supabase
+      .channel('notifications_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications' },
+        () => fetchUnreadCount()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchUnreadCount = async () => {

@@ -3,12 +3,21 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, SafeAreaView, ScrollVi
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { supabase } from '../utils/supabase';
-import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List } from 'lucide-react-native';
+import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail } from 'lucide-react-native';
+import InputModal from '../components/InputModal';
 
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme, viewMode, toggleViewMode } = useTheme();
-  const { profile, updateDisplayName } = useProfile();
+  const { profile, updateDisplayName, setNotificationsEnabled, updateKindleEmail } = useProfile();
   const styles = getStyles(colors, isDark);
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalConfig, setModalConfig] = useState<{
+    title: string;
+    message: string;
+    defaultValue: string;
+    type: 'name' | 'kindle';
+  } | null>(null);
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -16,16 +25,38 @@ export default function ProfileScreen() {
   };
 
   const handleEditName = () => {
-    Alert.prompt(
-      'Edit Display Name',
-      'Enter your new display name',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Save', onPress: (name) => name && updateDisplayName(name) }
-      ],
-      'plain-text',
-      profile?.display_name
-    );
+    setModalConfig({
+      title: 'Display Name',
+      message: 'Enter your new display name',
+      defaultValue: profile?.display_name || '',
+      type: 'name'
+    });
+    setModalVisible(true);
+  };
+
+  const handleEditKindle = () => {
+    setModalConfig({
+      title: 'Kindle Email',
+      message: 'Enter your @kindle.com address. \n\nIMPORTANT: Add "noreply@sloth-library.net" to your Amazon approved sender list.',
+      defaultValue: profile?.kindle_email || '',
+      type: 'kindle'
+    });
+    setModalVisible(true);
+  };
+
+  const handleModalSave = async (value: string) => {
+    if (!modalConfig) return;
+    
+    try {
+      if (modalConfig.type === 'name') {
+        await updateDisplayName(value);
+      } else {
+        await updateKindleEmail(value);
+      }
+      setModalVisible(false);
+    } catch (e: any) {
+      Alert.alert('Error', 'Failed to save changes.');
+    }
   };
 
   return (
@@ -36,7 +67,7 @@ export default function ProfileScreen() {
             <User size={40} color={colors.primary} />
           </View>
           <Text style={styles.name}>{profile?.display_name || 'Generic Sloth'}</Text>
-          <Text style={styles.email}>{profile?.email}</Text>
+          <Text style={styles.email} numberOfLines={1} ellipsizeMode="tail">{profile?.email}</Text>
         </View>
 
         <View style={styles.section}>
@@ -49,7 +80,9 @@ export default function ProfileScreen() {
               </View>
               <Text style={styles.rowLabel}>Display Name</Text>
             </View>
-            <Text style={styles.rowValue}>{profile?.display_name}</Text>
+            <Text style={[styles.rowValue, { flex: 1, textAlign: 'right', marginLeft: 16 }]} numberOfLines={1} ellipsizeMode="tail">
+              {profile?.display_name}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.row} onPress={toggleTheme}>
@@ -80,23 +113,31 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
           
-          <TouchableOpacity style={styles.row}>
+          <TouchableOpacity 
+            style={styles.row} 
+            onPress={() => setNotificationsEnabled(!profile?.notifications_enabled)}
+          >
             <View style={styles.rowLeft}>
               <View style={[styles.iconBox, { backgroundColor: '#FFD70011' }]}>
                 <Bell size={20} color="#FFD700" />
               </View>
               <Text style={styles.rowLabel}>Notifications</Text>
             </View>
-            <Text style={styles.rowValue}>Enabled</Text>
+            <View style={[styles.toggle, profile?.notifications_enabled && styles.toggleActive]}>
+              <View style={[styles.toggleDot, profile?.notifications_enabled && styles.toggleDotActive]} />
+            </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.row}>
+          <TouchableOpacity style={styles.row} onPress={handleEditKindle}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: '#4CAF5011' }]}>
-                <Shield size={20} color="#4CAF50" />
+              <View style={[styles.iconBox, { backgroundColor: '#FF990011' }]}>
+                <Mail size={20} color="#FF9900" />
               </View>
-              <Text style={styles.rowLabel}>Privacy</Text>
+              <Text style={styles.rowLabel}>Kindle Email</Text>
             </View>
+            <Text style={[styles.rowValue, { flex: 1, textAlign: 'right', marginLeft: 16 }]} numberOfLines={1} ellipsizeMode="tail">
+              {profile?.kindle_email || 'Not set'}
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -107,6 +148,18 @@ export default function ProfileScreen() {
 
         <Text style={styles.footerText}>Biblioteczka Leniwców v1.1.0</Text>
       </ScrollView>
+
+      {modalConfig && (
+        <InputModal
+          visible={modalVisible}
+          title={modalConfig.title}
+          message={modalConfig.message}
+          defaultValue={modalConfig.defaultValue}
+          onSave={handleModalSave}
+          onCancel={() => setModalVisible(false)}
+          keyboardType={modalConfig.type === 'kindle' ? 'email-address' : 'default'}
+        />
+      )}
     </SafeAreaView>
   );
 }

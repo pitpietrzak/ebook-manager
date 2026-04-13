@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
+import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
 import { 
   Star, User, Calendar, ChevronLeft, Share2, 
@@ -41,6 +43,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [ratingCount, setRatingCount] = useState(0);
   const { colors, isDark } = useTheme();
+  const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
 
   useEffect(() => {
@@ -123,18 +126,48 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   };
 
   const handleSendToKindle = async () => {
-    // Show prompt for email, or retrieve from user settings
-    // Call Supabase Edge Function to download from GDrive & send via Brevo
+    if (!profile?.kindle_email) {
+      Alert.alert(
+        'Kindle Email Missing',
+        'Please set your Kindle email in your Profile settings first.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Go to Profile', onPress: () => navigation.navigate('Main' as any, { screen: 'Profile' }) }
+        ]
+      );
+      return;
+    }
+
     setSendingEmail(true);
-    const { error } = await supabase.functions.invoke('send-to-kindle', {
-      body: { bookId, email: 'example@kindle.com' } // Hardcoded for now
-    });
-    
-    setSendingEmail(false);
-    if (error) {
-      Alert.alert('Error', 'Could not send to Kindle.');
-    } else {
+    try {
+      const providerToken = await SecureStore.getItemAsync('google_provider_token');
+      if (!providerToken) {
+        Alert.alert('Session Expired', 'Please log out and log in again to refresh your Google Drive access.');
+        setSendingEmail(false);
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('send-to-kindle', {
+        body: { 
+          bookId, 
+          email: profile.kindle_email,
+          providerToken 
+        }
+      });
+      
+      if (error || data?.error || !data?.success) {
+        console.error('[SendToKindle] Invoke Error:', error);
+        console.error('[SendToKindle] Invoke Data:', data);
+        const errorMsg = error?.message || data?.error || 'Unknown error occurred.';
+        throw new Error(`${errorMsg}`);
+      }
+      
       Alert.alert('Success', 'Book sent to your Kindle!');
+    } catch (e: any) {
+      console.error('[SendToKindle] Catch Error:', e);
+      Alert.alert('Error', e.message || 'Could not send to Kindle.');
+    } finally {
+      setSendingEmail(false);
     }
   };
 

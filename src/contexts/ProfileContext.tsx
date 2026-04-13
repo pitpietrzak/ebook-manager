@@ -10,6 +10,8 @@ type Profile = {
   display_name: string;
   avatar_url?: string;
   email: string;
+  notifications_enabled: boolean;
+  kindle_email?: string;
 };
 
 interface ProfileContextType {
@@ -17,6 +19,8 @@ interface ProfileContextType {
   loading: boolean;
   refreshProfile: () => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
+  setNotificationsEnabled: (enabled: boolean) => Promise<void>;
+  updateKindleEmail: (email: string) => Promise<void>;
 }
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
@@ -62,14 +66,72 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateDisplayName = async (name: string) => {
-    if (!profile) return;
-    const { error } = await supabase
-      .from('profiles')
-      .update({ display_name: name })
-      .eq('id', profile.id);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-    if (error) throw error;
-    setProfile({ ...profile, display_name: name });
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ 
+          id: user.id, 
+          display_name: name,
+          email: user.email // Ensure email is saved if this is an insert
+        });
+
+      if (error) throw error;
+      
+      // Update local state
+      if (profile) {
+        setProfile({ ...profile, display_name: name });
+      } else {
+        setProfile({ id: user.id, display_name: name, email: user.email || '' });
+      }
+    } catch (e) {
+      console.error('Error updating display name:', e);
+      throw e;
+    }
+  };
+  
+  const setNotificationsEnabled = async (enabled: boolean) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ 
+          id: user.id, 
+          notifications_enabled: enabled,
+          email: user.email // Ensure email is saved if this is an insert
+        });
+
+      if (error) throw error;
+      if (profile) setProfile({ ...profile, notifications_enabled: enabled });
+    } catch (e) {
+      console.error('Error setting notifications preference:', e);
+      throw e;
+    }
+  };
+
+  const updateKindleEmail = async (email: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ 
+          id: user.id, 
+          kindle_email: email,
+          email: user.email 
+        });
+
+      if (error) throw error;
+      if (profile) setProfile({ ...profile, kindle_email: email });
+    } catch (e) {
+      console.error('Error updating Kindle email:', e);
+      throw e;
+    }
   };
 
   const registerForPushNotificationsAsync = async () => {
@@ -109,7 +171,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <ProfileContext.Provider value={{ profile, loading, refreshProfile, updateDisplayName }}>
+    <ProfileContext.Provider value={{ profile, loading, refreshProfile, updateDisplayName, setNotificationsEnabled, updateKindleEmail }}>
       {children}
     </ProfileContext.Provider>
   );

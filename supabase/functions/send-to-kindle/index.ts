@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,7 +13,8 @@ serve(async (req) => {
   }
 
   try {
-    const { bookId, email } = await req.json();
+    const { bookId, email, providerToken } = await req.json();
+    console.log(`[SendToKindle] Invoked: book=${bookId}, email=${email}`);
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -20,7 +22,7 @@ serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     );
 
-    // 1. Fetch book details to get title and drive_file_id
+    // 1. Fetch book details
     const { data: book, error: bookError } = await supabaseClient
       .from('books')
       .select('title, drive_file_id')
@@ -29,14 +31,17 @@ serve(async (req) => {
 
     if (bookError || !book) throw new Error('Book not found');
 
-    // 2. Fetch the file from Google Drive (Needs Service Account or User Token in future)
-    // To simplify for this scaffold: you would use googleapis or standard fetch to Google Drive API
-    // const driveResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${book.drive_file_id}?alt=media`, {
-    //   headers: { Authorization: `Bearer ${userGoogleToken}` }
-    // });
-    // const fileBuffer = await driveResponse.arrayBuffer();
-    // const base64Content = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
-    const base64Content = "mock_base64_content";
+    // 2. Fetch the file from Google Drive
+    const driveResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${book.drive_file_id}?alt=media`, {
+      headers: { Authorization: `Bearer ${providerToken}` }
+    });
+
+    if (!driveResponse.ok) {
+      throw new Error(`Failed to download from Google Drive: ${driveResponse.statusText}`);
+    }
+
+    const fileBuffer = await driveResponse.arrayBuffer();
+    const base64Content = encode(fileBuffer);
 
     // 3. Send email via Brevo API
     const brevoKey = Deno.env.get('BREVO_API_KEY');
@@ -48,21 +53,22 @@ serve(async (req) => {
         'api-key': brevoKey || '',
       },
       body: JSON.stringify({
-        sender: { name: "Family Ebooks", email: "noreply@family-ebooks.net" },
+        sender: { name: "Sloth Library", email: "noreply@sloth-library.net" },
         to: [{ email: email }],
-        subject: `Send to Kindle: ${book.title}`,
-        htmlContent: `<p>Enjoy your book!</p>`,
+        subject: `Kindle: ${book.title}`,
+        htmlContent: `<p>A book has been sent to your Kindle: <strong>${book.title}</strong></p>`,
         attachment: [
           {
             content: base64Content,
-            name: `${book.title}.epub`,
+            name: `${book.title.replace(/[^a-zA-Z0-9]/g, '_')}.epub`,
           }
         ]
       }),
     });
 
     if (!brevoResponse.ok) {
-        throw new Error('Failed to send email via Brevo');
+        const errorData = await brevoResponse.json();
+        throw new Error(`Brevo error: ${JSON.stringify(errorData)}`);
     }
 
     return new Response(JSON.stringify({ success: true }), {
@@ -70,6 +76,7 @@ serve(async (req) => {
       status: 200,
     });
   } catch (error) {
+    console.error('send-to-kindle error:', error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,

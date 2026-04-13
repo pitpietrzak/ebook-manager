@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   display_name TEXT,
   avatar_url TEXT,
   push_token TEXT,
+  notifications_enabled BOOLEAN DEFAULT TRUE,
+  kindle_email TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -15,6 +17,9 @@ CREATE POLICY "Public profiles are viewable by everyone"
 
 CREATE POLICY "Users can update their own profile" 
   ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert their own profile" 
+  ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
 
 -- 2. Book Ratings Table
 CREATE TABLE IF NOT EXISTS public.book_ratings (
@@ -54,6 +59,12 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can see their own notifications"
   ON public.notifications FOR SELECT TO authenticated USING (user_id IS NULL OR auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own notifications"
+  ON public.notifications FOR UPDATE TO authenticated USING (user_id IS NULL OR auth.uid() = user_id);
+
+-- 4. Enable Realtime for notifications
+ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
 
 -- 4. Trigger to automatically create a profile for new users
 CREATE OR REPLACE FUNCTION public.handle_new_user()

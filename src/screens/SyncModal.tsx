@@ -6,6 +6,11 @@ import {
 import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
+import { 
+  RefreshCw, Folder, FileText, BookOpen, Check, 
+  ChevronRight, ChevronLeft, X, Layers, Settings,
+  Database, HardDrive, CheckCircle2
+} from 'lucide-react-native';
 
 type Props = {
   visible: boolean;
@@ -200,23 +205,29 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   // ---- Render steps ----
   const renderModeStep = () => (
     <View style={styles.stepContainer}>
-      <Text style={styles.stepTitle}>Sync Books</Text>
-      <Text style={styles.stepSubtitle}>How would you like to import?</Text>
-      <View style={styles.modeRow}>
-        <TouchableOpacity style={styles.modeCard} onPress={runFullSync}>
-          <Text style={styles.modeIcon}>🔄</Text>
-          <Text style={styles.modeTitle}>Full Sync</Text>
-          <Text style={styles.modeDesc}>Scan entire Drive and import all new books automatically</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.modeCard} onPress={openSelectMode}>
-          <Text style={styles.modeIcon}>☑️</Text>
-          <Text style={styles.modeTitle}>Select Books</Text>
-          <Text style={styles.modeDesc}>Browse your Drive and pick exactly what to import</Text>
+      <View style={styles.header}>
+        <Text style={styles.stepTitle}>Sync Books</Text>
+        <TouchableOpacity onPress={handleClose}>
+          <X size={24} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={styles.cancelBtn} onPress={handleClose}>
-        <Text style={styles.cancelBtnText}>Cancel</Text>
-      </TouchableOpacity>
+      <Text style={styles.stepSubtitle}>Import your library from Google Drive</Text>
+      <View style={styles.modeRow}>
+        <TouchableOpacity style={styles.modeCard} onPress={runFullSync}>
+          <View style={[styles.modeIconContainer, { backgroundColor: colors.primary + '11' }]}>
+            <RefreshCw size={32} color={colors.primary} />
+          </View>
+          <Text style={styles.modeTitle}>Full Sync</Text>
+          <Text style={styles.modeDesc}>Scan everything and import new books automatically</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.modeCard} onPress={openSelectMode}>
+          <View style={[styles.modeIconContainer, { backgroundColor: colors.accent + '11' }]}>
+            <Layers size={32} color={colors.accent} />
+          </View>
+          <Text style={styles.modeTitle}>Select Books</Text>
+          <Text style={styles.modeDesc}>Browse your Drive and pick specific files to add</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -227,15 +238,18 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   const renderBrowseStep = () => (
     <View style={styles.stepContainer}>
       <View style={styles.browseHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.stepTitle}>📁 {currentFolderName}</Text>
-          <Text style={styles.stepSubtitle}>{selectedFiles.length} books selected</Text>
-        </View>
         {folderStack.length > 1 && (
           <TouchableOpacity onPress={navigateUp} style={styles.backBtn}>
-            <Text style={styles.backBtnText}>← Back</Text>
+            <ChevronLeft size={20} color={colors.primary} />
           </TouchableOpacity>
         )}
+        <View style={{ flex: 1, marginLeft: folderStack.length > 1 ? 12 : 0 }}>
+          <Text style={styles.stepTitle}>{currentFolderName}</Text>
+          <Text style={styles.stepSubtitle}>{selectedFiles.length} selected</Text>
+        </View>
+        <TouchableOpacity onPress={handleClose}>
+          <X size={24} color={colors.textSecondary} />
+        </TouchableOpacity>
       </View>
 
       {filesInFolder.length > 0 && (
@@ -260,14 +274,22 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
                 style={[styles.driveItem, isSelected && styles.driveItemSelected]}
                 onPress={() => item.isFolder ? navigateIntoFolder(item) : toggleFileSelection(item)}
               >
-                <Text style={styles.driveItemIcon}>{item.isFolder ? '📁' : item.mimeType.includes('pdf') ? '📄' : '📖'}</Text>
+                <View style={styles.driveItemIconBox}>
+                  {item.isFolder ? (
+                    <Folder size={20} color={colors.primary} />
+                  ) : item.mimeType.includes('pdf') ? (
+                    <FileText size={20} color="#FF5252" />
+                  ) : (
+                    <BookOpen size={20} color={colors.accent} />
+                  )}
+                </View>
                 <Text style={styles.driveItemName} numberOfLines={1}>{item.name}</Text>
                 {!item.isFolder && (
                   <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                    {isSelected && <Text style={styles.checkmark}>✓</Text>}
+                    {isSelected && <Check size={14} color="#fff" strokeWidth={3} />}
                   </View>
                 )}
-                {item.isFolder && <Text style={styles.folderArrow}>›</Text>}
+                {item.isFolder && <ChevronRight size={20} color={colors.border} />}
               </TouchableOpacity>
             );
           }}
@@ -300,13 +322,14 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
         onPress={() => setGroupingMode('auto')}
       >
         <View style={styles.groupOptionHeader}>
-          <Text style={styles.groupOptionIcon}>📁</Text>
-          <Text style={styles.groupOptionTitle}>Use Drive Folder Names</Text>
-          {groupingMode === 'auto' && <Text style={styles.groupOptionCheck}>✓</Text>}
+          <Folder size={20} color={groupingMode === 'auto' ? colors.primary : colors.textSecondary} style={{ marginRight: 12 }} />
+          <Text style={styles.groupOptionTitle}>Use Drive Folders</Text>
+          {groupingMode === 'auto' && <CheckCircle2 size={20} color={colors.primary} />}
         </View>
         <Text style={styles.groupOptionDesc}>
-          Books will inherit the folder structure from Google Drive
-          {folderStack.length > 1 ? ` (${folderStack.slice(1).map(f => f.name).join(' › ')})` : ''}
+          {folderStack.length > 1 
+            ? `Organises under "${folderStack.slice(1).map(f => f.name).join(' › ')}"` 
+            : 'Uses existing folder structure from Drive'}
         </Text>
       </TouchableOpacity>
 
@@ -315,11 +338,11 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
         onPress={() => setGroupingMode('custom')}
       >
         <View style={styles.groupOptionHeader}>
-          <Text style={styles.groupOptionIcon}>🏷️</Text>
+          <Layers size={20} color={groupingMode === 'custom' ? colors.primary : colors.textSecondary} style={{ marginRight: 12 }} />
           <Text style={styles.groupOptionTitle}>Custom Collection</Text>
-          {groupingMode === 'custom' && <Text style={styles.groupOptionCheck}>✓</Text>}
+          {groupingMode === 'custom' && <CheckCircle2 size={20} color={colors.primary} />}
         </View>
-        <Text style={styles.groupOptionDesc}>Assign these books to a collection you name</Text>
+        <Text style={styles.groupOptionDesc}>Create a new collection for these books</Text>
       </TouchableOpacity>
 
       {groupingMode === 'custom' && (
@@ -374,71 +397,88 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40,
-    minHeight: 380,
+    backgroundColor: colors.card, borderTopLeftRadius: 32, borderTopRightRadius: 32,
+    paddingHorizontal: 24, paddingTop: 20, paddingBottom: 40,
+    minHeight: 400,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 8,
   },
   stepContainer: { width: '100%' },
-  stepTitle: { fontSize: 21, fontWeight: '700', color: colors.text, marginBottom: 6 },
-  stepSubtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: 20 },
-  modeRow: { flexDirection: 'row', gap: 12 },
+  stepTitle: { fontSize: 24, fontWeight: '800', color: colors.text },
+  stepSubtitle: { fontSize: 15, color: colors.textSecondary, marginBottom: 24 },
+  modeRow: { flexDirection: 'row', gap: 16 },
   modeCard: {
-    flex: 1, backgroundColor: isDark ? '#1D122B' : '#F7F8FC', borderRadius: 16, padding: 18,
-    borderWidth: 2, borderColor: isDark ? '#3A2552' : '#E8E8F0', alignItems: 'center',
+    flex: 1, backgroundColor: colors.background, borderRadius: 24, padding: 20,
+    borderWidth: 1, borderColor: colors.border, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
   },
-  modeIcon: { fontSize: 32, marginBottom: 10 },
-  modeTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 6, textAlign: 'center' },
+  modeIconContainer: {
+    width: 64, height: 64, borderRadius: 20,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 16,
+  },
+  modeTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 8, textAlign: 'center' },
   modeDesc: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 18 },
   cancelBtn: {
-    marginTop: 16, paddingVertical: 12,
-    alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 20,
+    alignItems: 'center', borderRadius: 12,
   },
-  cancelBtnText: { color: colors.textSecondary, fontSize: 15, fontWeight: '500' },
-  browseHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  cancelBtnText: { color: colors.textSecondary, fontSize: 15, fontWeight: '700' },
+  browseHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   backBtn: {
-    backgroundColor: isDark ? '#3A2552' : '#F0F0F7', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 20,
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border,
+    justifyContent: 'center', alignItems: 'center',
   },
-  backBtnText: { color: colors.primary, fontWeight: '600' },
-  selectAllBtn: { marginBottom: 8 },
-  selectAllText: { color: colors.primary, fontWeight: '600', fontSize: 13 },
+  selectAllBtn: { marginBottom: 12, paddingHorizontal: 4 },
+  selectAllText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
   driveItem: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
-    paddingHorizontal: 8, borderRadius: 10, marginBottom: 4,
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 14,
+    paddingHorizontal: 12, borderRadius: 16, marginBottom: 8,
+    borderWidth: 1, borderColor: 'transparent',
   },
-  driveItemSelected: { backgroundColor: isDark ? '#3A2552' : '#F0EFFE' },
-  driveItemIcon: { fontSize: 20, marginRight: 12 },
-  driveItemName: { flex: 1, fontSize: 15, color: colors.text },
-  folderArrow: { fontSize: 22, color: colors.textSecondary },
+  driveItemSelected: { 
+    backgroundColor: colors.primary + '08', 
+    borderColor: colors.primary + '22' 
+  },
+  driveItemIconBox: {
+    width: 40, height: 40, borderRadius: 10,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    justifyContent: 'center', alignItems: 'center', marginRight: 16,
+  },
+  driveItemName: { flex: 1, fontSize: 15, color: colors.text, fontWeight: '500' },
   checkbox: {
-    width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.border,
+    width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: colors.border,
     justifyContent: 'center', alignItems: 'center',
   },
   checkboxSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkmark: { color: colors.card, fontWeight: '700', fontSize: 13 },
-  emptyDrive: { textAlign: 'center', color: colors.textSecondary, marginTop: 30 },
-  browseFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 },
+  emptyDrive: { textAlign: 'center', color: colors.textSecondary, marginTop: 40, fontSize: 15 },
+  browseFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
   primaryBtn: {
-    backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 13,
-    borderRadius: 14, flex: 1, marginLeft: 12, alignItems: 'center',
+    backgroundColor: colors.primary, paddingVertical: 15,
+    borderRadius: 18, flex: 1, marginLeft: 16, alignItems: 'center',
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2, shadowRadius: 8, elevation: 4,
   },
-  primaryBtnDisabled: { opacity: 0.4 },
-  primaryBtnText: { color: isDark ? '#000' : '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnDisabled: { opacity: 0.3, shadowOpacity: 0 },
+  primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   groupOption: {
-    backgroundColor: isDark ? '#1D122B' : '#F7F8FC', borderRadius: 14, padding: 16,
-    borderWidth: 2, borderColor: isDark ? '#3A2552' : '#E8E8F0', marginBottom: 12,
+    backgroundColor: colors.background, borderRadius: 20, padding: 20,
+    borderWidth: 1, borderColor: colors.border, marginBottom: 16,
   },
-  groupOptionActive: { borderColor: colors.primary, backgroundColor: isDark ? '#2D1B45' : '#F0EFFE' },
-  groupOptionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  groupOptionIcon: { fontSize: 18, marginRight: 8 },
-  groupOptionTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.text },
-  groupOptionCheck: { color: colors.primary, fontWeight: '700', fontSize: 16 },
-  groupOptionDesc: { fontSize: 13, color: colors.textSecondary, paddingLeft: 26, lineHeight: 18 },
+  groupOptionActive: { borderColor: colors.primary, backgroundColor: colors.primary + '08' },
+  groupOptionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  groupOptionTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: colors.text },
+  groupOptionDesc: { fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
   customInput: {
-    borderWidth: 2, borderColor: colors.primary, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 12, fontSize: 15,
-    marginBottom: 8, color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: 2, borderColor: colors.primary, borderRadius: 16,
+    paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
+    marginBottom: 20, color: colors.text,
   },
-  progressText: { fontSize: 32, fontWeight: '700', color: colors.primary, marginBottom: 8 },
-  statusText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: 12 },
+  progressText: { fontSize: 48, fontWeight: '800', color: colors.primary, marginBottom: 12 },
+  statusText: { fontSize: 16, color: colors.textSecondary, textAlign: 'center', marginTop: 12, fontWeight: '500' },
 });

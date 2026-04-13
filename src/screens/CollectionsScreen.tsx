@@ -3,8 +3,10 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, StatusBar, SafeAreaView
 } from 'react-native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { CompositeNavigationProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../App';
+import { RootStackParamList, TabParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import * as SecureStore from 'expo-secure-store';
 import SyncModal from './SyncModal';
@@ -12,9 +14,16 @@ import NotificationModal from '../components/NotificationModal';
 import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
+import { 
+  Search, Plus, RefreshCw, Bell, ChevronRight, Layers, 
+  Library, MoreVertical, Settings, User as UserIcon
+} from 'lucide-react-native';
 
 type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Collections'>;
+  navigation: CompositeNavigationProp<
+    BottomTabNavigationProp<TabParamList, 'Dashboard'>,
+    NativeStackNavigationProp<RootStackParamList>
+  >;
 };
 
 type Collection = {
@@ -30,7 +39,7 @@ export default function CollectionsScreen({ navigation }: Props) {
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
-  const { colors, theme, isDark, toggleTheme } = useTheme();
+  const { colors, theme, isDark, toggleTheme, viewMode } = useTheme();
   const { profile, updateDisplayName } = useProfile();
   const styles = getStyles(colors, isDark);
   
@@ -103,25 +112,25 @@ export default function CollectionsScreen({ navigation }: Props) {
   ];
 
   const renderCollection = ({ item, index }: { item: Collection; index: number }) => {
+    const isGrid = viewMode === 'grid';
     const color = COLLECTION_COLORS[index % COLLECTION_COLORS.length];
+    
     return (
       <TouchableOpacity
-        style={[styles.collectionCard, { borderLeftColor: color }]}
+        style={isGrid ? styles.gridCard : styles.listCard}
         onPress={() => navigation.navigate('Library', {
           collectionFilter: item.name === 'Uncategorised' ? '__uncategorised__' : item.name
         })}
         activeOpacity={0.75}
       >
-        <View style={[styles.collectionIcon, { backgroundColor: color + '22' }]}>
-          <Text style={[styles.collectionIconText, { color }]}>
-            {item.name.charAt(0).toUpperCase()}
-          </Text>
+        <View style={[isGrid ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}>
+          <Layers size={isGrid ? 28 : 22} color={color} />
         </View>
-        <View style={styles.collectionInfo}>
-          <Text style={styles.collectionName}>{item.name}</Text>
-          <Text style={styles.collectionCount}>{item.count} {item.count === 1 ? 'book' : 'books'}</Text>
+        <View style={!isGrid && styles.listInfo}>
+          <Text style={isGrid ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
+          <Text style={isGrid ? styles.gridCount : styles.listCount}>{item.count} {item.count === 1 ? 'book' : 'books'}</Text>
         </View>
-        <Text style={[styles.collectionArrow, { color }]}>›</Text>
+        {!isGrid && <ChevronRight size={18} color={colors.border} />}
       </TouchableOpacity>
     );
   };
@@ -130,52 +139,25 @@ export default function CollectionsScreen({ navigation }: Props) {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Biblioteczka Leniwców</Text>
+        <View style={styles.headerTitleContainer}>
+          <Text 
+            style={styles.headerTitle} 
+            numberOfLines={1} 
+            adjustsFontSizeToFit={true}
+            minimumFontScale={0.7}
+          >
+            Biblioteczka Leniwców
+          </Text>
           <Text style={styles.headerSubtitle}>{totalBooks} books in your collection</Text>
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.menuIconBtn} onPress={() => setNotificationsVisible(true)}>
-            <Text style={styles.menuIconText}>🔔</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setNotificationsVisible(true)}>
+            <Bell size={24} color={colors.primary} />
             {unreadNotifications > 0 && <View style={styles.badge} />}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.menuIconBtn} onPress={() => setMenuVisible(!menuVisible)} activeOpacity={0.7}>
-            <Text style={styles.menuIconText}>⋮</Text>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setSyncModalVisible(true)}>
+            <RefreshCw size={22} color={colors.primary} />
           </TouchableOpacity>
-          {menuVisible && (
-            <View style={styles.dropdownMenu}>
-              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); startUpload(); }}>
-                <Text style={styles.menuItemIcon}>📚</Text>
-                <Text style={styles.menuItemText}>Upload Book</Text>
-              </TouchableOpacity>
-              <View style={styles.menuDivider} />
-              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); setSyncModalVisible(true); }}>
-                <Text style={styles.menuItemIcon}>🔄</Text>
-                <Text style={styles.menuItemText}>Sync Library</Text>
-              </TouchableOpacity>
-              <View style={styles.menuDivider} />
-              <TouchableOpacity style={styles.menuItem} onPress={() => { 
-                setMenuVisible(false); 
-                Alert.prompt('Profile Name', 'Enter your display name', [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Save', onPress: (name) => name && updateDisplayName(name) }
-                ], 'plain-text', profile?.display_name);
-              }}>
-                <Text style={styles.menuItemIcon}>👤</Text>
-                <Text style={styles.menuItemText}>My Profile</Text>
-              </TouchableOpacity>
-              <View style={styles.menuDivider} />
-              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); toggleTheme(); }}>
-                <Text style={styles.menuItemIcon}>{isDark ? '☀️' : '🌙'}</Text>
-                <Text style={styles.menuItemText}>{isDark ? 'Light Mode' : 'Dark Mode'}</Text>
-              </TouchableOpacity>
-              <View style={styles.menuDivider} />
-              <TouchableOpacity style={styles.menuItemLogout} onPress={() => { setMenuVisible(false); handleLogout(); }}>
-                <Text style={styles.menuItemIcon}>🚪</Text>
-                <Text style={styles.menuItemTextLogout}>Logout</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       </View>
 
@@ -184,38 +166,41 @@ export default function CollectionsScreen({ navigation }: Props) {
         onPress={() => navigation.navigate('Library', { collectionFilter: null, autoFocusSearch: true })}
         activeOpacity={0.8}
       >
-        <Text style={styles.searchIcon}>🔍</Text>
-        <Text style={styles.searchText}>Search titles, authors, or genres...</Text>
+        <Search size={20} color={colors.textSecondary} style={{ marginRight: 10 }} />
+        <Text style={styles.searchText}>Find your favorite stories...</Text>
       </TouchableOpacity>
 
       {loading ? (
         <ActivityIndicator size="large" color="#531492" style={{ marginTop: 40 }} />
       ) : (
         <FlatList
+          key={viewMode}
           data={collections}
           keyExtractor={(item) => item.name}
           renderItem={renderCollection}
+          numColumns={viewMode === 'grid' ? 2 : 1}
+          columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
           ListHeaderComponent={
             <TouchableOpacity
               style={styles.allBooksCard}
               onPress={() => navigation.navigate('Library', { collectionFilter: null })}
             >
-              <View style={[styles.collectionIcon, { backgroundColor: colors.primary + '22' }]}>
-                <Text style={[styles.collectionIconText, { color: colors.primary }]}>📚</Text>
+              <View style={[styles.allBooksIcon, { backgroundColor: colors.primary + '22' }]}>
+                <Library size={32} color={colors.primary} />
               </View>
-              <View style={styles.collectionInfo}>
-                <Text style={styles.collectionName}>All Books</Text>
-                <Text style={styles.collectionCount}>{totalBooks} books</Text>
+              <View style={styles.allBooksInfo}>
+                <Text style={styles.allBooksTitle}>All Books</Text>
+                <Text style={styles.allBooksSubtitle}>{totalBooks} books available</Text>
               </View>
-              <Text style={[styles.collectionArrow, { color: colors.primary }]}>›</Text>
+              <ChevronRight size={24} color={colors.primary} />
             </TouchableOpacity>
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>📭</Text>
-              <Text style={styles.emptyTitle}>No collections yet</Text>
-              <Text style={styles.emptySubtitle}>Tap Sync to import books from your Google Drive</Text>
+              <Library size={64} color={colors.border} style={{ marginBottom: 16 }} />
+              <Text style={styles.emptyTitle}>Your library is quiet</Text>
+              <Text style={styles.emptySubtitle}>Sync your Google Drive to see your collections appear here.</Text>
             </View>
           }
           contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
@@ -232,6 +217,15 @@ export default function CollectionsScreen({ navigation }: Props) {
         onClose={() => { setNotificationsVisible(false); fetchUnreadCount(); }}
         onSelectBook={(bookId) => navigation.navigate('BookDetail', { bookId })}
       />
+      
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={() => startUpload()}
+        activeOpacity={0.8}
+      >
+        <Plus size={32} color="#FFFFFF" />
+      </TouchableOpacity>
+
       {uploadNode}
 
       {isUploading && (
@@ -263,84 +257,111 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     shadowOpacity: 0.1, shadowRadius: 4, elevation: 5,
     zIndex: 10,
   },
-  headerTitle: { fontSize: 22, fontWeight: '700', color: colors.primary },
-  headerSubtitle: { fontSize: 13, color: colors.accent, marginTop: 2 },
-  headerActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  headerTitleContainer: {
+    flex: 1,
+    marginRight: 10,
+  },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: colors.primary },
+  headerSubtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  headerRight: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  iconBtn: {
+    padding: 8,
+    borderRadius: 12,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 99,
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.card,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 4,
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 10,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.primary + '33',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderColor: colors.border,
   },
-  searchIcon: { fontSize: 16, marginRight: 8 },
-  searchText: { fontSize: 15, color: colors.textSecondary },
-  menuIconBtn: {
-    padding: 4, paddingHorizontal: 12,
-    justifyContent: 'center', alignItems: 'center'
-  },
-  menuIconText: { fontSize: 24, fontWeight: '700', color: colors.primary },
+  searchText: { fontSize: 15, color: colors.textSecondary, fontWeight: '500' },
   badge: {
-    position: 'absolute', top: 6, right: 8, width: 10, height: 10,
-    borderRadius: 5, backgroundColor: colors.accent,
-    borderWidth: 2, borderColor: colors.card,
+    position: 'absolute', top: 6, right: 6, width: 8, height: 8,
+    borderRadius: 4, backgroundColor: colors.accent,
+    borderWidth: 1.5, borderColor: colors.card,
   },
-  dropdownMenu: {
-    position: 'absolute', top: 54, right: 0, width: 170,
-    backgroundColor: colors.menuBg, borderRadius: 16,
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12, shadowRadius: 16, elevation: 12,
-    zIndex: 20, overflow: 'hidden',
-    borderWidth: 1, borderColor: colors.border,
-  },
-  menuItem: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 16, paddingHorizontal: 16
-  },
-  menuItemLogout: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 16, paddingHorizontal: 16,
-    backgroundColor: colors.menuBg
-  },
-  menuItemIcon: { fontSize: 16, marginRight: 12 },
-  menuItemText: { fontSize: 15, fontWeight: '700', color: colors.menuItemText },
-  menuItemTextLogout: { fontSize: 15, fontWeight: '700', color: '#E53935' },
-  menuDivider: { height: 1, backgroundColor: colors.border },
   allBooksCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
-    borderRadius: 14, padding: 16, marginBottom: 12,
-    borderLeftWidth: 4, borderLeftColor: colors.primary,
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
+    borderRadius: 20, padding: 20, marginHorizontal: 4, marginBottom: 20,
+    borderWidth: 1, borderColor: colors.border,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1, shadowRadius: 12, elevation: 4,
   },
-  collectionCard: {
+  allBooksIcon: {
+    width: 64, height: 64, borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center', marginRight: 16,
+  },
+  allBooksInfo: { flex: 1 },
+  allBooksTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
+  allBooksSubtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  gridRow: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  gridCard: {
+    width: '48%',
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+  },
+  gridIconContainer: {
+    width: 60, height: 60,
+    borderRadius: 18,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 12,
+  },
+  gridName: {
+    fontSize: 16, fontWeight: '700', color: colors.text,
+    textAlign: 'center', marginBottom: 4,
+  },
+  gridCount: {
+    fontSize: 12, color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  listCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
-    borderRadius: 14, padding: 16, marginBottom: 12, borderLeftWidth: 4,
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08, shadowRadius: 6, elevation: 2,
+    borderRadius: 16, padding: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: colors.border,
   },
-  collectionIcon: {
+  listIconContainer: {
     width: 48, height: 48, borderRadius: 12,
-    justifyContent: 'center', alignItems: 'center', marginRight: 14,
+    justifyContent: 'center', alignItems: 'center', marginRight: 12,
   },
-  collectionIconText: { fontSize: 22, fontWeight: '700' },
-  collectionInfo: { flex: 1 },
-  collectionName: { fontSize: 17, fontWeight: '600', color: colors.text },
-  collectionCount: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  collectionArrow: { fontSize: 28, fontWeight: '300' },
-  emptyContainer: { alignItems: 'center', marginTop: 60, paddingHorizontal: 30 },
-  emptyIcon: { fontSize: 52, marginBottom: 16 },
+  listInfo: { flex: 1 },
+  listName: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 2 },
+  listCount: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 40 },
   emptyTitle: { fontSize: 20, fontWeight: '700', color: colors.text, marginBottom: 8 },
   emptySubtitle: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
 });

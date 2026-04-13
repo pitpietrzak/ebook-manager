@@ -7,7 +7,9 @@ type Theme = 'light' | 'dark';
 interface ThemeContextType {
   theme: Theme;
   isDark: boolean;
+  viewMode: 'grid' | 'list';
   toggleTheme: () => void;
+  toggleViewMode: () => void;
   colors: typeof LightColors;
 }
 
@@ -44,19 +46,28 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const systemScheme = useColorScheme();
   const [theme, setTheme] = useState<Theme>(systemScheme === 'dark' ? 'dark' : 'light');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   useEffect(() => {
     loadTheme();
+    loadViewMode();
   }, []);
 
   const loadTheme = async () => {
     try {
       const savedTheme = await AsyncStorage.getItem('user_theme');
-      if (savedTheme) {
-        setTheme(savedTheme as Theme);
-      }
+      if (savedTheme) setTheme(savedTheme as Theme);
     } catch (e) {
       console.log('Failed to load theme:', e);
+    }
+  };
+  
+  const loadViewMode = async () => {
+    try {
+      const savedMode = await AsyncStorage.getItem('user_view_mode');
+      if (savedMode) setViewMode(savedMode as 'grid' | 'list');
+    } catch (e) {
+      console.log('Failed to load view mode:', e);
     }
   };
 
@@ -70,11 +81,21 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
+  const toggleViewMode = async () => {
+    const newMode = viewMode === 'grid' ? 'list' : 'grid';
+    setViewMode(newMode);
+    try {
+      await AsyncStorage.setItem('user_view_mode', newMode);
+    } catch (e) {
+      console.log('Failed to save view mode:', e);
+    }
+  };
+
   const colors = theme === 'light' ? LightColors : DarkColors;
   const isDark = theme === 'dark';
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark, toggleTheme, colors }}>
+    <ThemeContext.Provider value={{ theme, isDark, viewMode, toggleTheme, toggleViewMode, colors }}>
       {children}
     </ThemeContext.Provider>
   );

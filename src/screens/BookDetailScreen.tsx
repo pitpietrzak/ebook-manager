@@ -6,6 +6,10 @@ import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
+import { 
+  Star, User, Calendar, ChevronLeft, Share2, 
+  ExternalLink, Languages, Book, Clock, Download, Mail
+} from 'lucide-react-native';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'BookDetail'>;
@@ -27,7 +31,7 @@ type Book = {
   profiles?: { display_name: string } | null;
 };
 
-export default function BookDetailScreen({ route }: Props) {
+export default function BookDetailScreen({ navigation, route }: Props) {
   const { bookId } = route.params;
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,6 +155,15 @@ export default function BookDetailScreen({ route }: Props) {
   return (
     <ScrollView style={styles.container}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <ChevronLeft size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.shareBtn}>
+          <Share2 size={20} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.content}>
         <Text style={styles.title}>{book.title}</Text>
         {book.alt_title && <Text style={styles.subtitle}>{book.alt_title}</Text>}
@@ -158,7 +171,10 @@ export default function BookDetailScreen({ route }: Props) {
 
         <View style={styles.metaRow}>
           {book.profiles?.display_name && (
-            <Text style={styles.uploader}>Added by {book.profiles.display_name}</Text>
+            <View style={styles.uploaderRow}>
+              <User size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
+              <Text style={styles.uploader}>Added by {book.profiles.display_name}</Text>
+            </View>
           )}
         </View>
 
@@ -166,15 +182,17 @@ export default function BookDetailScreen({ route }: Props) {
           <View style={styles.stars}>
             {[1, 2, 3, 4, 5].map((s) => (
               <TouchableOpacity key={s} onPress={() => handleRate(s)}>
-                <Text style={[styles.star, s <= (userRating || 0) && styles.starActive]}>
-                  {s <= (userRating || 0) ? '★' : '☆'}
-                </Text>
+                <Star 
+                  size={24} 
+                  fill={s <= (userRating || 0) ? '#FFD700' : 'transparent'} 
+                  color={s <= (userRating || 0) ? '#FFD700' : isDark ? '#3A2552' : '#DDD'} 
+                />
               </TouchableOpacity>
             ))}
           </View>
           {avgRating !== null && (
             <Text style={styles.avgRating}>
-              {avgRating.toFixed(1)} ({ratingCount} {ratingCount === 1 ? 'rating' : 'ratings'})
+              {avgRating.toFixed(1)} <Text style={{ fontSize: 12, fontWeight: '400' }}>({ratingCount} reviews)</Text>
             </Text>
           )}
         </View>
@@ -193,11 +211,12 @@ export default function BookDetailScreen({ route }: Props) {
         </View>
 
         <View style={styles.descriptionHeader}>
-          <Text style={styles.sectionTitle}>Description</Text>
+          <Text style={styles.sectionTitle}>About this book</Text>
           {book.description_pl && (
-            <TouchableOpacity onPress={() => setShowPolish(!showPolish)}>
+            <TouchableOpacity style={styles.translateBtn} onPress={() => setShowPolish(!showPolish)}>
+              <Languages size={14} color={colors.accent} style={{ marginRight: 6 }} />
               <Text style={styles.translateText}>
-                {showPolish ? 'View in English' : 'Translate to Polish'}
+                {showPolish ? 'English' : 'Polish'}
               </Text>
             </TouchableOpacity>
           )}
@@ -206,6 +225,7 @@ export default function BookDetailScreen({ route }: Props) {
 
         <View style={styles.actions}>
           <TouchableOpacity style={styles.primaryButton} onPress={() => {/* Download or open logic */}}>
+            <Download size={20} color="#fff" style={{ marginRight: 10 }} />
             <Text style={styles.buttonText}>Download / Open</Text>
           </TouchableOpacity>
           
@@ -214,28 +234,33 @@ export default function BookDetailScreen({ route }: Props) {
             onPress={handleSendToKindle}
             disabled={sendingEmail}
           >
+            <Mail size={20} color={colors.accent} style={{ marginRight: 10 }} />
             <Text style={styles.secondaryButtonText}>
               {sendingEmail ? 'Sending...' : 'Send to Kindle'}
             </Text>
           </TouchableOpacity>
 
-          {book.goodreads_url ? (
-            <TouchableOpacity 
-              style={[styles.secondaryButton, { borderColor: isDark ? '#82713D' : '#E9E5CE' }]} 
-              onPress={() => Linking.openURL(book.goodreads_url!)}
-            >
-              <Text style={[styles.secondaryButtonText, { color: isDark ? '#D9C587' : '#82713D' }]}>📚 Open in Goodreads</Text>
-            </TouchableOpacity>
-          ) : null}
+          <View style={styles.externalLinksRow}>
+            {book.goodreads_url ? (
+              <TouchableOpacity 
+                style={[styles.linkPill, { backgroundColor: '#E9E5CE' }]} 
+                onPress={() => Linking.openURL(book.goodreads_url!)}
+              >
+                <ExternalLink size={14} color="#82713D" />
+                <Text style={[styles.linkPillText, { color: '#82713D' }]}>Goodreads</Text>
+              </TouchableOpacity>
+            ) : null}
 
-          {book.lubimyczytac_url ? (
-            <TouchableOpacity 
-              style={[styles.secondaryButton, { borderColor: isDark ? '#D32F2F' : '#F5E8E8' }]} 
-              onPress={() => Linking.openURL(book.lubimyczytac_url!)}
-            >
-              <Text style={[styles.secondaryButtonText, { color: isDark ? '#FF8A80' : '#D32F2F' }]}>📖 Open in LubimyCzytać</Text>
-            </TouchableOpacity>
-          ) : null}
+            {book.lubimyczytac_url ? (
+              <TouchableOpacity 
+                style={[styles.linkPill, { backgroundColor: '#F5E8E8' }]} 
+                onPress={() => Linking.openURL(book.lubimyczytac_url!)}
+              >
+                <ExternalLink size={14} color="#D32F2F" />
+                <Text style={[styles.linkPillText, { color: '#D32F2F' }]}>LubimyCzytać</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
       </View>
     </ScrollView>
@@ -247,127 +272,154 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  backBtn: {
+    padding: 8, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+  },
+  shareBtn: {
+    padding: 8, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+  },
   content: {
-    padding: 20,
+    padding: 24, paddingTop: 12,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '800',
     color: colors.primary,
-    marginBottom: 4,
+    marginBottom: 8,
+    lineHeight: 38,
   },
   subtitle: {
     fontSize: 18,
     color: colors.accent,
     fontStyle: 'italic',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   author: {
-    fontSize: 18,
+    fontSize: 20,
+    fontWeight: '600',
     color: colors.textSecondary,
-    marginBottom: 4,
+    marginBottom: 16,
   },
   metaRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  uploaderRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
   },
   uploader: {
     fontSize: 12,
     color: colors.textSecondary,
-    fontStyle: 'italic',
+    fontWeight: '600'
   },
   ratingSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
-    backgroundColor: isDark ? '#1D122B' : '#F7F8FC',
-    padding: 12,
-    borderRadius: 12,
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    backgroundColor: colors.card,
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1, borderColor: colors.border,
   },
   stars: {
     flexDirection: 'row',
-    gap: 4,
-  },
-  star: {
-    fontSize: 24,
-    color: isDark ? '#3A2552' : '#DDD',
-  },
-  starActive: {
-    color: '#FFD700',
+    gap: 6,
   },
   avgRating: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontWeight: '600',
+    fontSize: 18,
+    color: colors.text,
+    fontWeight: '700',
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 20,
+    gap: 10,
+    marginBottom: 32,
   },
   tag: {
-    backgroundColor: isDark ? '#3A2552' : '#F5E8FA',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    backgroundColor: colors.primary + '11',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
   },
   tagText: {
-    color: isDark ? '#E9D5FF' : '#71229F',
-    fontSize: 14,
-    fontWeight: '600',
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '800',
     color: colors.text,
   },
   descriptionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginTop: 10,
-    marginBottom: 10,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  translateBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.accent + '11',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8,
   },
   translateText: {
     color: colors.accent,
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
   },
   description: {
     fontSize: 16,
-    lineHeight: 24,
-    color: colors.text,
+    lineHeight: 26,
+    color: colors.textSecondary,
+    marginBottom: 40,
   },
   actions: {
-    marginTop: 40,
-    gap: 15,
+    gap: 16,
+    marginBottom: 40,
   },
   primaryButton: {
     backgroundColor: colors.primary,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
+    paddingVertical: 18,
+    borderRadius: 20,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2, shadowRadius: 12, elevation: 4,
   },
   buttonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: 'bold',
   },
   secondaryButton: {
     backgroundColor: colors.card,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.accent,
+    paddingVertical: 18,
+    borderRadius: 20,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.border,
   },
   secondaryButtonText: {
     color: colors.accent,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: 'bold',
+  },
+  externalLinksRow: {
+    flexDirection: 'row', gap: 12, marginTop: 8,
+  },
+  linkPill: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12, borderRadius: 14, gap: 8,
+  },
+  linkPillText: {
+    fontSize: 13, fontWeight: '700',
   }
 });

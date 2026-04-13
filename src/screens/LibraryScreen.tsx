@@ -3,19 +3,27 @@ import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet,
   ActivityIndicator, Alert, RefreshControl, SafeAreaView
 } from 'react-native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { CompositeNavigationProp, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
-import { RootStackParamList } from '../../App';
+import { RootStackParamList, TabParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
 import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
+import { 
+  Search, Plus, Sparkles, Inbox, Book as BookIcon, 
+  ChevronRight, Filter, Clock 
+} from 'lucide-react-native';
 
 type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Library'>;
-  route: RouteProp<RootStackParamList, 'Library'>;
+  navigation: CompositeNavigationProp<
+    BottomTabNavigationProp<TabParamList, 'Library'>,
+    NativeStackNavigationProp<RootStackParamList>
+  >;
+  route: RouteProp<TabParamList, 'Library'>;
 };
 
 type Book = {
@@ -66,13 +74,12 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setLoading(true);
     let queryPromise;
     
-    // Attempt join with profiles for uploader info
-    const tryQuery = supabase.from('books').select('*, profiles(display_name)').order('created_at', { ascending: false });
+    let tryQuery = supabase.from('books').select('*, profiles(display_name)').order('created_at', { ascending: false });
     
     if (collectionFilter === '__uncategorised__') {
-      tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
+      tryQuery = tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
     } else if (collectionFilter) {
-      tryQuery.contains('folder_tags', [collectionFilter]);
+      tryQuery = tryQuery.contains('folder_tags', [collectionFilter]);
     }
 
     const { data, error } = await tryQuery;
@@ -157,25 +164,24 @@ export default function LibraryScreen({ navigation, route }: Props) {
         onPress={() => navigation.navigate('BookDetail', { bookId: item.id })}
         activeOpacity={0.75}
       >
-        <View style={styles.bookCardLeft}>
-          <View style={styles.bookCover}>
-            <Text style={styles.bookCoverInitial}>{item.title?.[0] ?? '?'}</Text>
-          </View>
+        <View style={styles.bookCover}>
+          <BookIcon size={24} color={colors.primary} />
+          <Text style={styles.bookCoverInitial}>{item.title?.[0]}</Text>
         </View>
         <View style={styles.bookInfo}>
-          <Text style={styles.bookTitle} numberOfLines={2}>{item.title}</Text>
+          <Text style={styles.bookTitle} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
           
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <View style={styles.bookMeta}>
             {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
             {item.profiles?.display_name && (
-              <Text style={styles.uploaderName}>• by {item.profiles.display_name}</Text>
+              <Text style={styles.uploaderName}>• {item.profiles.display_name}</Text>
             )}
           </View>
           
           {item.moods?.length > 0 && (
             <View style={styles.moodRow}>
-              {item.moods.slice(0, 3).map(m => (
+              {item.moods.slice(0, 2).map(m => (
                 <View key={m} style={styles.moodChip}>
                   <Text style={styles.moodChipText}>{m}</Text>
                 </View>
@@ -183,6 +189,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
             </View>
           )}
         </View>
+        <ChevronRight size={20} color={colors.border} />
       </TouchableOpacity>
     );
   };
@@ -190,23 +197,26 @@ export default function LibraryScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
-      <View style={styles.searchBar}>
-        <TextInput
-          ref={searchInputRef}
-          style={styles.searchInput}
-          placeholder={aiSearchMode ? '✨ Describe what you want to read...' : '🔍 Search title, author, genre, mood...'}
-          placeholderTextColor={isDark ? '#888' : '#AAA'}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          onSubmitEditing={aiSearchMode ? handleAiSearch : undefined}
-          returnKeyType={aiSearchMode ? 'search' : 'default'}
-        />
-        <TouchableOpacity
-          style={[styles.aiToggle, aiSearchMode && styles.aiToggleActive]}
-          onPress={() => { setAiSearchMode(v => !v); setAiResults(null); setSearchQuery(''); }}
-        >
-          <Text style={[styles.aiToggleText, aiSearchMode && styles.aiToggleTextActive]}>AI</Text>
-        </TouchableOpacity>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInner}>
+          <Search size={18} color={isDark ? '#888' : '#AAA'} style={{ marginLeft: 12 }} />
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder={aiSearchMode ? 'Describe your next adventure...' : 'Search books...'}
+            placeholderTextColor={isDark ? '#888' : '#AAA'}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={aiSearchMode ? handleAiSearch : undefined}
+            returnKeyType={aiSearchMode ? 'search' : 'default'}
+          />
+          <TouchableOpacity
+            style={[styles.aiToggle, aiSearchMode && styles.aiToggleActive]}
+            onPress={() => { setAiSearchMode(v => !v); setAiResults(null); setSearchQuery(''); }}
+          >
+            <Sparkles size={18} color={aiSearchMode ? '#fff' : colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {aiSearchMode && (
@@ -216,7 +226,10 @@ export default function LibraryScreen({ navigation, route }: Props) {
             <TouchableOpacity style={styles.aiSearchBtn} onPress={handleAiSearch} disabled={aiSearching}>
               {aiSearching
                 ? <ActivityIndicator size="small" color="#fff" />
-                : <Text style={styles.aiSearchBtnText}>Search</Text>
+                : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Sparkles size={14} color="#fff" />
+                    <Text style={styles.aiSearchBtnText}>Search</Text>
+                  </View>
               }
             </TouchableOpacity>
             {aiResults && (
@@ -245,9 +258,9 @@ export default function LibraryScreen({ navigation, route }: Props) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBooks(); }} tintColor={colors.primary} />}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>📭</Text>
+              <Inbox size={64} color={colors.border} strokeWidth={1} style={{ marginBottom: 16 }} />
               <Text style={styles.emptyText}>
-                {searchQuery ? `No books matching "${searchQuery}"` : 'No books in this collection yet'}
+                {searchQuery ? `No matches for "${searchQuery}"` : 'Your library is empty'}
               </Text>
             </View>
           }
@@ -259,7 +272,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
         onPress={() => startUpload(collectionFilter)}
         disabled={isUploading}
       >
-        {isUploading ? <ActivityIndicator color="#fff" /> : <Text style={styles.fabText}>+</Text>}
+        {isUploading ? <ActivityIndicator color="#fff" /> : <Plus size={32} color="#fff" />}
       </TouchableOpacity>
 
       {uploadNode}
@@ -288,77 +301,82 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 16
   },
   safe: { flex: 1, backgroundColor: colors.background },
-  searchBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+  searchContainer: {
     paddingHorizontal: 16, paddingVertical: 12,
     backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
+  searchInner: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.inputBg,
+    borderRadius: 14, height: 46,
+  },
   searchInput: {
-    flex: 1, height: 42, backgroundColor: colors.inputBg, borderRadius: 12,
-    paddingHorizontal: 14, fontSize: 14, color: colors.text,
+    flex: 1, height: '100%', paddingHorizontal: 12,
+    fontSize: 15, color: colors.text,
   },
   aiToggle: {
-    width: 44, height: 42, borderRadius: 12, backgroundColor: colors.inputBg,
+    width: 44, height: 38, borderRadius: 10, marginRight: 4,
     justifyContent: 'center', alignItems: 'center',
   },
-  aiToggleActive: { backgroundColor: colors.accent },
-  aiToggleText: { fontWeight: '700', fontSize: 13, color: colors.textSecondary },
-  aiToggleTextActive: { color: '#fff' },
+  aiToggleActive: { backgroundColor: colors.primary },
   aiBar: {
-    backgroundColor: isDark ? '#1D122B' : '#FFF5F2', 
-    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: isDark ? 'rgba(187,134,252,0.05)' : '#F7F8FC', 
+    paddingHorizontal: 16, paddingVertical: 12,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
-  aiHint: { fontSize: 12, color: colors.accent, flex: 1 },
-  aiActions: { flexDirection: 'row', gap: 8 },
+  aiHint: { fontSize: 13, color: colors.primary, fontWeight: '500', flex: 1 },
+  aiActions: { flexDirection: 'row', gap: 10 },
   aiSearchBtn: {
-    backgroundColor: colors.accent, paddingHorizontal: 16, paddingVertical: 7,
-    borderRadius: 20, minWidth: 70, alignItems: 'center',
+    backgroundColor: colors.primary, paddingHorizontal: 18, paddingVertical: 8,
+    borderRadius: 20, minWidth: 90, alignItems: 'center',
   },
   aiSearchBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   clearBtn: {
-    backgroundColor: isDark ? '#3A2552' : '#FDE4DD', 
-    paddingHorizontal: 16, paddingVertical: 7,
+    backgroundColor: isDark ? '#3A2552' : '#E0E0E0', 
+    paddingHorizontal: 18, paddingVertical: 8,
     borderRadius: 20,
   },
-  clearBtnText: { color: colors.accent, fontWeight: '600', fontSize: 13 },
+  clearBtnText: { color: colors.text, fontWeight: '600', fontSize: 13 },
   aiResultsHeader: { 
     backgroundColor: isDark ? '#1D122B' : '#F5E8FA', 
-    paddingHorizontal: 16, paddingVertical: 8 
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  aiResultsLabel: { color: colors.primary, fontWeight: '600', fontSize: 13 },
+  aiResultsLabel: { color: colors.primary, fontWeight: '700', fontSize: 14 },
   bookCard: {
-    flexDirection: 'row', backgroundColor: colors.card, borderRadius: 14,
-    marginBottom: 12, padding: 14, overflow: 'hidden',
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1, shadowRadius: 6, elevation: 2,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 16,
+    marginBottom: 12, padding: 12,
+    borderWidth: 1, borderColor: colors.border,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
-  bookCardLeft: { marginRight: 14 },
   bookCover: {
-    width: 52, height: 72, borderRadius: 8, backgroundColor: colors.primary + '22',
-    justifyContent: 'center', alignItems: 'center',
+    width: 60, height: 80, borderRadius: 10, backgroundColor: colors.primary + '11',
+    justifyContent: 'center', alignItems: 'center', marginRight: 14,
+    position: 'relative',
   },
-  bookCoverInitial: { fontSize: 24, fontWeight: '700', color: colors.primary },
+  bookCoverInitial: { 
+    position: 'absolute', bottom: 4, right: 6,
+    fontSize: 12, fontWeight: '900', color: colors.primary, opacity: 0.3 
+  },
   bookInfo: { flex: 1 },
-  bookTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 2 },
-  bookAuthor: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
-  uploaderName: { fontSize: 11, color: colors.textSecondary, fontStyle: 'italic' },
-  bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '600' },
-  moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  bookTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 4 },
+  bookAuthor: { fontSize: 14, color: colors.textSecondary, marginBottom: 6 },
+  bookMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '700', backgroundColor: colors.primary + '11', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  uploaderName: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
+  moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   moodChip: {
-    backgroundColor: isDark ? '#3A2552' : '#F5E8FA', 
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', 
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
-  moodChipText: { fontSize: 11, color: isDark ? '#E9D5FF' : '#71229F', fontWeight: '600' },
-  empty: { alignItems: 'center', marginTop: 60 },
-  emptyIcon: { fontSize: 44, marginBottom: 12 },
-  emptyText: { fontSize: 15, color: colors.textSecondary, textAlign: 'center' },
+  moodChipText: { fontSize: 11, color: colors.textSecondary, fontWeight: '700', textTransform: 'uppercase' },
+  empty: { alignItems: 'center', marginTop: 100 },
+  emptyText: { fontSize: 16, color: colors.textSecondary, fontWeight: '500', textAlign: 'center' },
   fab: {
-    position: 'absolute', bottom: 24, right: 24, width: 58, height: 58,
-    borderRadius: 29, backgroundColor: colors.primary, justifyContent: 'center',
-    alignItems: 'center', elevation: 5,
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 8,
+    position: 'absolute', bottom: 30, right: 30, width: 64, height: 64,
+    borderRadius: 32, backgroundColor: colors.primary, justifyContent: 'center',
+    alignItems: 'center', elevation: 8,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3, shadowRadius: 12,
   },
-  fabText: { color: '#fff', fontSize: 28, lineHeight: 32 },
 });

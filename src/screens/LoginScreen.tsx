@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Linking from 'expo-linking';
@@ -8,14 +8,17 @@ import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
 
+import { LogIn } from 'lucide-react-native';
+
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors);
+  const styles = getStyles(colors, isDark);
 
   const handleGoogleLogin = async () => {
+    // ... logic remains same ...
     try {
       setLoading(true);
       const redirectUri = AuthSession.makeRedirectUri();
@@ -25,7 +28,7 @@ export default function LoginScreen() {
         options: {
           redirectTo: redirectUri,
           queryParams: {
-            access_type: 'offline', // Need this to get refresh tokens sometimes
+            access_type: 'offline', 
             prompt: 'consent',
           },
           scopes: 'openid profile email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly',
@@ -43,7 +46,6 @@ export default function LoginScreen() {
         
         if (result.type === 'success') {
           const { url } = result;
-          // Parse the hash parameters from the returned redirect URL
           const hashMatches = url.match(/#(.*)$/);
           if (hashMatches) {
             const params = new URLSearchParams(hashMatches[1]);
@@ -78,61 +80,99 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
-      <Text style={styles.title}>Biblioteczka Leniwców 🦥</Text>
-      <Text style={styles.subtitle}>Log in slowly to your shared library...</Text>
+      
+      <View style={styles.hero}>
+        <View style={styles.iconContainer}>
+          <Image 
+            source={require('../../assets/sloth-logo.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
+        <Text style={styles.title}>Biblioteczka Leniwców</Text>
+        <Text style={styles.subtitle}>Your stories, shared & organized.</Text>
+      </View>
 
       <TouchableOpacity 
-        style={styles.button} 
+        style={[styles.button, loading && styles.buttonDisabled]} 
         disabled={loading}
         onPress={handleGoogleLogin}
+        activeOpacity={0.8}
       >
-        <Text style={styles.buttonText}>
-          {loading ? 'Signing In...' : 'Sign in with Google'}
-        </Text>
+        <View style={styles.btnContent}>
+          <LogIn size={20} color="#fff" style={{ marginRight: 12 }} />
+          <Text style={styles.buttonText}>
+            {loading ? 'Connecting...' : 'Continue with Google'}
+          </Text>
+        </View>
       </TouchableOpacity>
+      
+      <Text style={styles.footer}>Powered by Supabase & Google Drive</Text>
     </View>
   );
 }
 
-const getStyles = (colors: any) => StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    padding: 20,
+    padding: 30,
     backgroundColor: colors.background,
+    justifyContent: 'center',
     alignItems: 'center',
   },
+  hero: {
+    alignItems: 'center',
+    marginBottom: 60,
+  },
+  iconContainer: {
+    width: 130, height: 130,
+    borderRadius: 40,
+    backgroundColor: colors.card,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1, borderColor: colors.border,
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15, shadowRadius: 20, elevation: 8,
+    overflow: 'hidden',
+  },
+  logo: {
+    width: '100%',
+    height: '100%',
+  },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    fontSize: 34,
+    fontWeight: '900',
     color: colors.primary,
     textAlign: 'center',
+    marginBottom: 12,
   },
   subtitle: {
     fontSize: 16,
-    color: colors.accent,
-    marginBottom: 40,
+    color: colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 24,
   },
   button: {
     backgroundColor: colors.primary,
-    padding: 15,
-    borderRadius: 12,
+    paddingVertical: 18,
+    borderRadius: 20,
     width: '100%',
-    alignItems: 'center',
+    shadowColor: colors.primary, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3, shadowRadius: 10, elevation: 8,
+  },
+  btnContent: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
   buttonDisabled: {
-    backgroundColor: '#a0c1f9',
+    opacity: 0.6,
   },
   buttonText: {
     color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+    fontWeight: '800',
+    fontSize: 17,
   },
-  warning: {
-    color: 'red',
-    marginTop: 20,
-    textAlign: 'center',
+  footer: {
+    position: 'absolute', bottom: 40,
+    fontSize: 12, color: colors.textSecondary, fontWeight: '500',
   }
 });

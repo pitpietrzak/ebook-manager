@@ -21,6 +21,7 @@ type Props = {
 type Book = {
   id: string;
   title: string;
+  alt_title?: string | null;
   author: string;
   genre: string;
   description: string;
@@ -29,6 +30,8 @@ type Book = {
   lubimyczytac_url?: string;
   moods: string[];
   folder_tags: string[];
+  user_id: string;
+  profiles?: { display_name: string } | null;
 };
 
 export default function LibraryScreen({ navigation, route }: Props) {
@@ -61,20 +64,38 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   const fetchBooks = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from('books').select('*').order('created_at', { ascending: false });
-
+    let queryPromise;
+    
+    // Attempt join with profiles for uploader info
+    const tryQuery = supabase.from('books').select('*, profiles(display_name)').order('created_at', { ascending: false });
+    
     if (collectionFilter === '__uncategorised__') {
-      // Books with no folder tags at all
-      query = query.or('folder_tags.is.null,folder_tags.eq.{}');
+      tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
     } else if (collectionFilter) {
-      query = query.contains('folder_tags', [collectionFilter]);
+      tryQuery.contains('folder_tags', [collectionFilter]);
     }
 
-    const { data, error } = await query;
-    if (!error && data) {
+    const { data, error } = await tryQuery;
+    
+    if (error) {
+      console.warn('Profile join failed (migration might be missing):', error.message);
+      // Fallback to simple select if join fails
+      let fallbackQuery = supabase.from('books').select('*').order('created_at', { ascending: false });
+      if (collectionFilter === '__uncategorised__') {
+        fallbackQuery = fallbackQuery.or('folder_tags.is.null,folder_tags.eq.{}');
+      } else if (collectionFilter) {
+        fallbackQuery = fallbackQuery.contains('folder_tags', [collectionFilter]);
+      }
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      if (!fallbackError && fallbackData) {
+        setAllBooks(fallbackData);
+        setDisplayedBooks(fallbackData);
+      }
+    } else if (data) {
       setAllBooks(data);
       setDisplayedBooks(data);
     }
+    
     setLoading(false);
     setRefreshing(false);
   }, [collectionFilter]);
@@ -144,7 +165,14 @@ export default function LibraryScreen({ navigation, route }: Props) {
         <View style={styles.bookInfo}>
           <Text style={styles.bookTitle} numberOfLines={2}>{item.title}</Text>
           <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
-          {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
+            {item.profiles?.display_name && (
+              <Text style={styles.uploaderName}>• by {item.profiles.display_name}</Text>
+            )}
+          </View>
+          
           {item.moods?.length > 0 && (
             <View style={styles.moodRow}>
               {item.moods.slice(0, 3).map(m => (
@@ -313,8 +341,9 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   bookCoverInitial: { fontSize: 24, fontWeight: '700', color: colors.primary },
   bookInfo: { flex: 1 },
   bookTitle: { fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 2 },
-  bookAuthor: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
-  bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '600', marginBottom: 6 },
+  bookAuthor: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
+  uploaderName: { fontSize: 11, color: colors.textSecondary, fontStyle: 'italic' },
+  bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '600' },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   moodChip: {
     backgroundColor: isDark ? '#3A2552' : '#F5E8FA', 

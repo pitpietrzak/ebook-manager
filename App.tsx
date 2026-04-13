@@ -20,6 +20,7 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { ProfileProvider } from './src/contexts/ProfileContext';
 import { DefaultTheme, DarkTheme } from '@react-navigation/native';
 
 function AppContent() {
@@ -77,7 +78,9 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <ProfileProvider>
+        <AppContent />
+      </ProfileProvider>
     </ThemeProvider>
   );
 }

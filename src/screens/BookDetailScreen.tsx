@@ -23,6 +23,8 @@ type Book = {
   goodreads_url?: string;
   lubimyczytac_url?: string;
   moods: string[];
+  user_id: string;
+  profiles?: { display_name: string } | null;
 };
 
 export default function BookDetailScreen({ route }: Props) {
@@ -31,22 +33,86 @@ export default function BookDetailScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [showPolish, setShowPolish] = useState(false);
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [ratingCount, setRatingCount] = useState(0);
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
 
   useEffect(() => {
     fetchBookDetails();
+    fetchRatings();
   }, [bookId]);
+
+  const fetchRatings = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase
+          .from('book_ratings')
+          .select('rating')
+          .eq('book_id', bookId)
+          .eq('user_id', user.id)
+          .single();
+        if (data) setUserRating(data.rating);
+      }
+
+      const { data: allRatings } = await supabase
+        .from('book_ratings')
+        .select('rating')
+        .eq('book_id', bookId);
+
+      if (allRatings && allRatings.length > 0) {
+        const total = allRatings.reduce((sum, r) => sum + r.rating, 0);
+        setAvgRating(total / allRatings.length);
+        setRatingCount(allRatings.length);
+      }
+    } catch (e) {
+      console.warn('Ratings fetch failed:', e);
+    }
+  };
+
+  const handleRate = async (rating: number) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Login required', 'Please log in to rate books.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('book_ratings')
+        .upsert({
+          book_id: bookId,
+          user_id: user.id,
+          rating
+        }, { onConflict: 'user_id,book_id' });
+
+      if (error) throw error;
+      setUserRating(rating);
+      fetchRatings();
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    }
+  };
 
   const fetchBookDetails = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from('books')
-      .select('*')
+      .select('*, profiles(display_name)')
       .eq('id', bookId)
       .single();
 
-    if (!error && data) {
+    if (error) {
+      console.warn('Profile join failed in detail view:', error.message);
+      const { data: fallbackData } = await supabase
+        .from('books')
+        .select('*')
+        .eq('id', bookId)
+        .single();
+      if (fallbackData) setBook(fallbackData);
+    } else if (data) {
       setBook(data);
     }
     setLoading(false);
@@ -87,11 +153,32 @@ export default function BookDetailScreen({ route }: Props) {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.content}>
         <Text style={styles.title}>{book.title}</Text>
-        {book.alt_title && (
-          <Text style={styles.subtitle}>{book.alt_title}</Text>
-        )}
+        {book.alt_title && <Text style={styles.subtitle}>{book.alt_title}</Text>}
         <Text style={styles.author}>by {book.author}</Text>
-        
+
+        <View style={styles.metaRow}>
+          {book.profiles?.display_name && (
+            <Text style={styles.uploader}>Added by {book.profiles.display_name}</Text>
+          )}
+        </View>
+
+        <View style={styles.ratingSection}>
+          <View style={styles.stars}>
+            {[1, 2, 3, 4, 5].map((s) => (
+              <TouchableOpacity key={s} onPress={() => handleRate(s)}>
+                <Text style={[styles.star, s <= (userRating || 0) && styles.starActive]}>
+                  {s <= (userRating || 0) ? '★' : '☆'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {avgRating !== null && (
+            <Text style={styles.avgRating}>
+              {avgRating.toFixed(1)} ({ratingCount} {ratingCount === 1 ? 'rating' : 'ratings'})
+            </Text>
+          )}
+        </View>
+
         <View style={styles.tagsContainer}>
           {book.genre && (
             <View style={styles.tag}>
@@ -178,7 +265,43 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   author: {
     fontSize: 18,
     color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginBottom: 12,
+  },
+  uploader: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  ratingSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     marginBottom: 20,
+    backgroundColor: isDark ? '#1D122B' : '#F7F8FC',
+    padding: 12,
+    borderRadius: 12,
+  },
+  stars: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  star: {
+    fontSize: 24,
+    color: isDark ? '#3A2552' : '#DDD',
+  },
+  starActive: {
+    color: '#FFD700',
+  },
+  avgRating: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
   tagsContainer: {
     flexDirection: 'row',

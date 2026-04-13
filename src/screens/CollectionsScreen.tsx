@@ -8,8 +8,10 @@ import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import * as SecureStore from 'expo-secure-store';
 import SyncModal from './SyncModal';
+import NotificationModal from '../components/NotificationModal';
 import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
+import { useProfile } from '../contexts/ProfileContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Collections'>;
@@ -26,9 +28,29 @@ export default function CollectionsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const { colors, theme, isDark, toggleTheme } = useTheme();
+  const { profile, updateDisplayName } = useProfile();
   const styles = getStyles(colors, isDark);
+  
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  useEffect(() => {
+    fetchUnreadCount();
+  }, []);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const { count } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_read', false);
+      if (count !== null) setUnreadNotifications(count);
+    } catch (e) {
+      console.warn('Unread count fetch failed (migration might be missing):', e);
+    }
+  };
 
   const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchCollections());
 
@@ -109,10 +131,14 @@ export default function CollectionsScreen({ navigation }: Props) {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Biblioteczka Leniwców 🦥</Text>
+          <Text style={styles.headerTitle}>Biblioteczka Leniwców</Text>
           <Text style={styles.headerSubtitle}>{totalBooks} books in your collection</Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.menuIconBtn} onPress={() => setNotificationsVisible(true)}>
+            <Text style={styles.menuIconText}>🔔</Text>
+            {unreadNotifications > 0 && <View style={styles.badge} />}
+          </TouchableOpacity>
           <TouchableOpacity style={styles.menuIconBtn} onPress={() => setMenuVisible(!menuVisible)} activeOpacity={0.7}>
             <Text style={styles.menuIconText}>⋮</Text>
           </TouchableOpacity>
@@ -126,6 +152,17 @@ export default function CollectionsScreen({ navigation }: Props) {
               <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); setSyncModalVisible(true); }}>
                 <Text style={styles.menuItemIcon}>🔄</Text>
                 <Text style={styles.menuItemText}>Sync Library</Text>
+              </TouchableOpacity>
+              <View style={styles.menuDivider} />
+              <TouchableOpacity style={styles.menuItem} onPress={() => { 
+                setMenuVisible(false); 
+                Alert.prompt('Profile Name', 'Enter your display name', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Save', onPress: (name) => name && updateDisplayName(name) }
+                ], 'plain-text', profile?.display_name);
+              }}>
+                <Text style={styles.menuItemIcon}>👤</Text>
+                <Text style={styles.menuItemText}>My Profile</Text>
               </TouchableOpacity>
               <View style={styles.menuDivider} />
               <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuVisible(false); toggleTheme(); }}>
@@ -190,6 +227,11 @@ export default function CollectionsScreen({ navigation }: Props) {
         onClose={() => setSyncModalVisible(false)}
         onSyncComplete={() => { setSyncModalVisible(false); fetchCollections(); }}
       />
+      <NotificationModal 
+        visible={notificationsVisible} 
+        onClose={() => { setNotificationsVisible(false); fetchUnreadCount(); }}
+        onSelectBook={(bookId) => navigation.navigate('BookDetail', { bookId })}
+      />
       {uploadNode}
 
       {isUploading && (
@@ -249,6 +291,11 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center'
   },
   menuIconText: { fontSize: 24, fontWeight: '700', color: colors.primary },
+  badge: {
+    position: 'absolute', top: 6, right: 8, width: 10, height: 10,
+    borderRadius: 5, backgroundColor: colors.accent,
+    borderWidth: 2, borderColor: colors.card,
+  },
   dropdownMenu: {
     position: 'absolute', top: 54, right: 0, width: 170,
     backgroundColor: colors.menuBg, borderRadius: 16,

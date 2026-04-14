@@ -14,7 +14,7 @@ serve(async (req) => {
 
   try {
     const { bookId, email, providerToken } = await req.json();
-    console.log(`[SendToKindle] Invoked: book=${bookId}, email=${email}`);
+    console.log(`[SendToKindle] Gmail Auth: book=${bookId}, email=${email}`);
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -41,37 +41,58 @@ serve(async (req) => {
     }
 
     const fileBuffer = await driveResponse.arrayBuffer();
-    const base64Content = encode(fileBuffer);
+    const base64Attachment = encode(fileBuffer);
+    const safeTitle = book.title.replace(/[^a-zA-Z0-9]/g, '_');
 
-    // 3. Send email via Brevo API
-    const brevoKey = Deno.env.get('BREVO_API_KEY');
-    const brevoResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+    // 3. Construct MIME Message (RFC 5322)
+    const boundary = "sloth_library_boundary";
+    const mimeParts = [
+      `To: ${email}`,
+      `Subject: Convert: ${book.title}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="UTF-8"`,
+      `Content-Transfer-Encoding: 7bit`,
+      ``,
+      `Sent from your Sloth Library app.`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: application/epub+zip`,
+      `Content-Disposition: attachment; filename="${safeTitle}.epub"`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      base64Attachment,
+      `--${boundary}--`
+    ];
+
+    const mimeMessage = mimeParts.join("\r\n");
+
+    // Convert to base64url (UTF-8 safe)
+    const base64Mime = encode(new TextEncoder().encode(mimeMessage))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    // 4. Send via Gmail API
+    const gmailResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',
       headers: {
-        'Accept': 'application/json',
+        'Authorization': `Bearer ${providerToken}`,
         'Content-Type': 'application/json',
-        'api-key': brevoKey || '',
       },
       body: JSON.stringify({
-        sender: { name: "Sloth Library", email: "noreply@sloth-library.net" },
-        to: [{ email: email }],
-        subject: `Kindle: ${book.title}`,
-        htmlContent: `<p>A book has been sent to your Kindle: <strong>${book.title}</strong></p>`,
-        attachment: [
-          {
-            content: base64Content,
-            name: `${book.title.replace(/[^a-zA-Z0-9]/g, '_')}.epub`,
-          }
-        ]
+        raw: base64Mime
       }),
     });
 
-    if (!brevoResponse.ok) {
-        const errorData = await brevoResponse.json();
-        throw new Error(`Brevo error: ${JSON.stringify(errorData)}`);
+    if (!gmailResponse.ok) {
+        const errorData = await gmailResponse.json();
+        throw new Error(`Gmail API error: ${JSON.stringify(errorData)}`);
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ success: true, message: 'Message sent via Gmail' }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });

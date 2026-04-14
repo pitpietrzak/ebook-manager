@@ -37,7 +37,7 @@ export default function ProfileScreen() {
   const handleEditKindle = () => {
     setModalConfig({
       title: 'Kindle Email',
-      message: 'Enter your @kindle.com address. \n\nIMPORTANT: Add "noreply@sloth-library.net" to your Amazon approved sender list.',
+      message: `Enter your @kindle.com address. \n\nIMPORTANT: Add "${profile?.email}" to your Amazon approved sender list.`,
       defaultValue: profile?.kindle_email || '',
       type: 'kindle'
     });

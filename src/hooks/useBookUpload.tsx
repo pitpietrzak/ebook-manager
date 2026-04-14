@@ -14,11 +14,20 @@ export function useBookUpload(onSuccess: () => void) {
   const startUpload = async (defaultCollectionName?: string | null) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/epub+zip', 'application/pdf'],
+        type: ['application/epub+zip', 'application/pdf', 'application/x-mobipocket-ebook', 'application/octet-stream'],
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
       const file = result.assets[0];
+
+      // 1. Validate File Extension
+      const supportedExtensions = ['epub', 'mobi', 'pdf'];
+      const fileExt = file.name?.split('.').pop()?.toLowerCase() || '';
+      
+      if (!supportedExtensions.includes(fileExt)) {
+        Alert.alert('Unsupported Format', 'Please select an EPUB, MOBI, or PDF file.');
+        return;
+      }
 
       if (defaultCollectionName && defaultCollectionName !== '__uncategorised__') {
         // Direct upload to specific context

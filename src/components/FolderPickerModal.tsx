@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, TextInput, A
 import * as SecureStore from 'expo-secure-store';
 import { listDriveFolders, createDriveFolder } from '../utils/drive';
 
+import { useTheme } from '../contexts/ThemeContext';
+
 type Folder = { id: string; name: string };
 
 type Props = {
@@ -16,6 +18,8 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
   const [loading, setLoading] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [creating, setCreating] = useState(false);
+  const { colors, isDark } = useTheme();
+  const styles = getStyles(colors, isDark);
 
   useEffect(() => {
     if (visible) fetchFolders();
@@ -51,7 +55,6 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
       const newFolder = await createDriveFolder(trimmed, token, rootId);
       setNewFolderName('');
       
-      // Auto select the newly created folder rather than just refreshing the list
       onSelectFolder(newFolder.id, newFolder.name);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not create folder');
@@ -72,7 +75,7 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
             <TextInput
               style={styles.input}
               placeholder="New folder name..."
-              placeholderTextColor="#AAA"
+              placeholderTextColor={isDark ? '#555' : '#AAA'}
               value={newFolderName}
               onChangeText={setNewFolderName}
             />
@@ -82,7 +85,7 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
           </View>
 
           {loading ? (
-            <ActivityIndicator size="large" color="#531492" style={{ marginVertical: 30 }} />
+            <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 30 }} />
           ) : (
             <FlatList
               data={folders}
@@ -112,40 +115,38 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
   );
 }
 
-const PURPLE = '#531492';
-const PINK = '#E80F88';
-
-const styles = StyleSheet.create({
+const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   container: {
-    backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 24, maxHeight: '80%', paddingBottom: 40,
+    borderWidth: isDark ? 1 : 0, borderColor: colors.border,
   },
-  title: { fontSize: 20, fontWeight: '700', color: PURPLE, marginBottom: 16 },
+  title: { fontSize: 20, fontWeight: '700', color: colors.primary, marginBottom: 16 },
   createRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   input: {
-    flex: 1, height: 44, backgroundColor: '#FDF8FF', borderRadius: 12,
-    paddingHorizontal: 14, fontSize: 15, color: '#1A1A2E',
-    borderWidth: 1, borderColor: '#F5E8FA',
+    flex: 1, height: 44, backgroundColor: colors.inputBg, borderRadius: 12,
+    paddingHorizontal: 14, fontSize: 15, color: colors.text,
+    borderWidth: 1, borderColor: colors.border,
   },
   createBtn: {
-    backgroundColor: PINK, borderRadius: 12, paddingHorizontal: 16,
+    backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 16,
     justifyContent: 'center', alignItems: 'center',
   },
   createBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   list: { paddingBottom: 20 },
   folderRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#FDF8FF',
+    borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   folderIcon: { fontSize: 24, marginRight: 12 },
-  folderName: { fontSize: 16, color: '#333', fontWeight: '500' },
+  folderName: { fontSize: 16, color: colors.text, fontWeight: '500' },
   cancelBtn: {
     marginTop: 10, paddingVertical: 14, alignItems: 'center',
-    backgroundColor: '#F5E8FA', borderRadius: 12,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F5E8FA', borderRadius: 12,
   },
-  cancelBtnText: { color: PURPLE, fontSize: 16, fontWeight: '700' },
+  cancelBtnText: { color: colors.primary, fontSize: 16, fontWeight: '700' },
 });

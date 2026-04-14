@@ -275,7 +275,7 @@ export default function CollectionsScreen({ navigation }: Props) {
           ListHeaderComponent={
             <TouchableOpacity
               style={styles.allBooksCard}
-              onPress={() => navigation.navigate('Library', { collectionFilter: null })}
+              onPress={() => navigation.navigate('Library', { collectionFilter: '__all__' })}
             >
               <View style={[styles.allBooksIcon, { backgroundColor: colors.primary + '22' }]}>
                 <Library size={32} color={colors.primary} />

@@ -102,10 +102,13 @@ export default function ProfileScreen() {
               <View style={[styles.iconBox, { backgroundColor: colors.primary + '11' }]}>
                 {viewMode === 'grid' ? <List size={20} color={colors.primary} /> : <LayoutGrid size={20} color={colors.primary} />}
               </View>
-              <Text style={styles.rowLabel}>{viewMode === 'grid' ? 'Switch to List' : 'Switch to Grid'}</Text>
+              <Text style={styles.rowLabel}>Library View Mode</Text>
             </View>
-            <View style={[styles.toggle, viewMode === 'list' && styles.toggleActive]}>
-              <View style={[styles.toggleDot, viewMode === 'list' && styles.toggleDotActive]} />
+            <View style={styles.rowRight}>
+               <Text style={[styles.rowValue, { marginRight: 12 }]}>{viewMode === 'grid' ? 'Grid' : 'List'}</Text>
+               <View style={[styles.toggle, viewMode === 'list' && styles.toggleActive]}>
+                 <View style={[styles.toggleDot, viewMode === 'list' && styles.toggleDotActive]} />
+               </View>
             </View>
           </TouchableOpacity>
         </View>
@@ -207,6 +210,9 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 12,
   },
   rowLeft: {
+    flexDirection: 'row', alignItems: 'center',
+  },
+  rowRight: {
     flexDirection: 'row', alignItems: 'center',
   },
   iconBox: {

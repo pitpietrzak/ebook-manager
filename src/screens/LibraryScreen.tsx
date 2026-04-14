@@ -15,8 +15,11 @@ import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
 import { 
   Search, Plus, Sparkles, Inbox, Book as BookIcon, 
-  ChevronRight, Filter, Clock 
+  ChevronRight, Filter, Clock, RefreshCw, Folder as FolderIcon,
+  ChevronLeft
 } from 'lucide-react-native';
+import SyncModal from './SyncModal';
+import DynamicIcon from '../components/DynamicIcon';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -48,13 +51,16 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   const [allBooks, setAllBooks] = useState<Book[]>([]);
   const [displayedBooks, setDisplayedBooks] = useState<Book[]>([]);
+  const [collections, setCollections] = useState<{name: string, count: number}[]>([]);
+  const [iconMap, setIconMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [aiSearchMode, setAiSearchMode] = useState(false);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<Book[] | null>(null);
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, viewMode } = useTheme();
 
   const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchBooks());
   const styles = getStyles(colors, isDark);
@@ -70,42 +76,76 @@ export default function LibraryScreen({ navigation, route }: Props) {
     }
   }, [autoFocusSearch]);
 
+  const fetchCollections = useCallback(async (books: Book[]) => {
+    const tagCounts: Record<string, number> = {};
+    books.forEach(book => {
+      const tags = book.folder_tags || [];
+      if (tags.length === 0) {
+        tagCounts['Uncategorised'] = (tagCounts['Uncategorised'] || 0) + 1;
+      } else {
+        tags.forEach(tag => {
+          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        });
+      }
+    });
+    const sorted = Object.entries(tagCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+    setCollections(sorted);
+    fetchCollectionIcons(sorted.map(c => c.name));
+  }, []);
+
+  const fetchCollectionIcons = async (names: string[]) => {
+    try {
+      const { data } = await supabase.from('collection_icons').select('name, icon_name').in('name', names);
+      const newMap: Record<string, string> = {};
+      data?.forEach(row => { newMap[row.name] = row.icon_name; });
+      setIconMap(prev => ({ ...prev, ...newMap }));
+    } catch (e) {
+      console.warn('Icon fetch failed:', e);
+    }
+  };
+
+// Handle special cases for collectionFilter
+  const isAllView = collectionFilter === '__all__';
+  const isHomeView = collectionFilter === null;
+
   const fetchBooks = useCallback(async () => {
     setLoading(true);
-    let queryPromise;
-    
     let tryQuery = supabase.from('books').select('*, profiles(display_name)').order('created_at', { ascending: false });
     
     if (collectionFilter === '__uncategorised__') {
       tryQuery = tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
-    } else if (collectionFilter) {
+    } else if (collectionFilter && !isAllView) {
       tryQuery = tryQuery.contains('folder_tags', [collectionFilter]);
     }
 
     const { data, error } = await tryQuery;
     
-    if (error) {
-      console.warn('Profile join failed (migration might be missing):', error.message);
-      // Fallback to simple select if join fails
+    if (!error && data) {
+      setAllBooks(data);
+      setDisplayedBooks(data);
+      if (isHomeView) fetchCollections(data);
+    } else {
+      // Fallback (strict filtering)
       let fallbackQuery = supabase.from('books').select('*').order('created_at', { ascending: false });
       if (collectionFilter === '__uncategorised__') {
         fallbackQuery = fallbackQuery.or('folder_tags.is.null,folder_tags.eq.{}');
-      } else if (collectionFilter) {
+      } else if (collectionFilter && !isAllView) {
         fallbackQuery = fallbackQuery.contains('folder_tags', [collectionFilter]);
       }
-      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
-      if (!fallbackError && fallbackData) {
+      
+      const { data: fallbackData } = await fallbackQuery;
+      if (fallbackData) {
         setAllBooks(fallbackData);
         setDisplayedBooks(fallbackData);
+        if (isHomeView) fetchCollections(fallbackData);
       }
-    } else if (data) {
-      setAllBooks(data);
-      setDisplayedBooks(data);
     }
     
     setLoading(false);
     setRefreshing(false);
-  }, [collectionFilter]);
+  }, [collectionFilter, isAllView, isHomeView, fetchCollections]);
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
 
@@ -155,7 +195,39 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setSearchQuery('');
   };
 
-  const booksToShow = aiResults ?? displayedBooks;
+  // Hide books on home explorer view unless searching or AI results exist
+  const booksToShow = (isHomeView && !searchQuery && !aiResults) ? [] : (aiResults ?? displayedBooks);
+
+  const renderCollectionItem = ({ item, index }: { item: { name: string, count: number }, index: number }) => {
+    const isGrid = viewMode === 'grid';
+    const COLLECTION_COLORS = ['#8B5CF6', '#D946EF', '#F43F5E', '#6366F1', '#EC4899', '#3B82F6', '#06B6D4', '#10B981'];
+    const color = item.name === 'All Books' ? colors.primary : COLLECTION_COLORS[index % COLLECTION_COLORS.length];
+    
+    return (
+      <TouchableOpacity
+        style={isGrid ? styles.gridCard : styles.listCard}
+        onPress={() => navigation.navigate('Library', {
+          collectionFilter: item.name === 'All Books' ? '__all__' : (item.name === 'Uncategorised' ? '__uncategorised__' : item.name)
+        })}
+        activeOpacity={0.7}
+      >
+        <View style={[isGrid ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}>
+          <DynamicIcon 
+            name={item.name === 'All Books' ? 'Library' : (item.name === 'Uncategorised' ? 'Layers' : iconMap[item.name] || 'Layers')} 
+            size={isGrid ? 28 : 22} 
+            color={color} 
+          />
+        </View>
+        <View style={!isGrid && { flex: 1 }}>
+          <Text style={isGrid ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
+          <Text style={isGrid ? styles.gridCount : styles.listCount}>
+            {item.count} {item.count === 1 ? 'book' : 'books'}
+          </Text>
+        </View>
+        {!isGrid && <ChevronRight size={18} color={colors.border} />}
+      </TouchableOpacity>
+    );
+  };
 
   const renderBook = ({ item }: { item: Book }) => {
     return (
@@ -197,7 +269,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
-      <View style={styles.searchContainer}>
+      
+      <View style={styles.topBar}>
         <View style={styles.searchInner}>
           <Search size={18} color={isDark ? '#888' : '#AAA'} style={{ marginLeft: 12 }} />
           <TextInput
@@ -217,6 +290,26 @@ export default function LibraryScreen({ navigation, route }: Props) {
             <Sparkles size={18} color={aiSearchMode ? '#fff' : colors.textSecondary} />
           </TouchableOpacity>
         </View>
+        <TouchableOpacity style={styles.syncBtn} onPress={() => setSyncModalVisible(true)}>
+          <RefreshCw size={22} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.breadcrumbs}>
+        <TouchableOpacity 
+          onPress={() => navigation.navigate('Library', { collectionFilter: null })}
+          style={styles.breadcrumbItem}
+        >
+          <Text style={[styles.breadcrumbText, isHomeView && styles.breadcrumbActive]}>Library</Text>
+        </TouchableOpacity>
+        {collectionFilter && (
+          <>
+            <ChevronRight size={14} color={colors.textSecondary} style={{ marginHorizontal: 4 }} />
+            <Text style={[styles.breadcrumbText, styles.breadcrumbActive]}>
+              {isAllView ? 'All Books' : (collectionFilter === '__uncategorised__' ? 'Uncategorised' : collectionFilter)}
+            </Text>
+          </>
+        )}
       </View>
 
       {aiSearchMode && (
@@ -241,12 +334,6 @@ export default function LibraryScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {aiResults && (
-        <View style={styles.aiResultsHeader}>
-          <Text style={styles.aiResultsLabel}>✨ AI Results for "{searchQuery}"</Text>
-        </View>
-      )}
-
       {loading ? (
         <ActivityIndicator size="large" color="#531492" style={{ marginTop: 40 }} />
       ) : (
@@ -256,13 +343,65 @@ export default function LibraryScreen({ navigation, route }: Props) {
           renderItem={renderBook}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBooks(); }} tintColor={colors.primary} />}
+          ListHeaderComponent={
+            <>
+              {isHomeView && !aiResults && !searchQuery ? (
+                <View style={styles.collectionsSection}>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Folders</Text>
+                    <TouchableOpacity onPress={() => navigation.navigate('Dashboard')}>
+                      <Text style={styles.seeAllText}>Manage</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={[styles.collectionsVertical, viewMode === 'grid' && styles.collectionsGrid]}>
+                    <View style={viewMode === 'grid' ? { width: '48%' } : { width: '100%' }}>
+                      {renderCollectionItem({ item: { name: 'All Books', count: allBooks.length }, index: -1 })}
+                    </View>
+                    {collections.map((c, i) => (
+                      <View key={c.name} style={viewMode === 'grid' ? { width: '48%' } : { width: '100%' }}>
+                        {renderCollectionItem({ item: c, index: i })}
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              {aiResults && (
+                <View style={styles.aiResultsHeader}>
+                  <Text style={styles.aiResultsLabel}>✨ AI Results for "{searchQuery}"</Text>
+                </View>
+              )}
+            </>
+          }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Inbox size={64} color={colors.border} strokeWidth={1} style={{ marginBottom: 16 }} />
-              <Text style={styles.emptyText}>
-                {searchQuery ? `No matches for "${searchQuery}"` : 'Your library is empty'}
-              </Text>
-            </View>
+            // If we are at root and have folders, don't show an "Empty Books" message under the folders
+            (isHomeView && collections.length > 0 && !searchQuery) ? null : (
+              <View style={styles.empty}>
+                <Inbox size={64} color={colors.border} strokeWidth={1} style={{ marginBottom: 16 }} />
+                <Text style={styles.emptyText}>
+                  {searchQuery 
+                    ? `No matches for "${searchQuery}"` 
+                    : isHomeView 
+                      ? 'Your library is completely empty' 
+                      : isAllView
+                        ? 'No books found in your library'
+                        : `No books found in "${collectionFilter === '__uncategorised__' ? 'Uncategorised' : collectionFilter}"`
+                  }
+                </Text>
+                {collectionFilter && !searchQuery && (
+                  <TouchableOpacity 
+                    style={styles.syncRefBtn} 
+                    onPress={() => navigation.navigate('Library', { collectionFilter: null })}
+                  >
+                    <Text style={styles.syncRefBtnText}>Back to Library</Text>
+                  </TouchableOpacity>
+                )}
+                {isHomeView && !searchQuery && (
+                  <TouchableOpacity style={styles.syncRefBtn} onPress={() => setSyncModalVisible(true)}>
+                    <Text style={styles.syncRefBtnText}>Sync Google Drive</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )
           }
         />
       )}
@@ -274,6 +413,12 @@ export default function LibraryScreen({ navigation, route }: Props) {
       >
         {isUploading ? <ActivityIndicator color="#fff" /> : <Plus size={32} color="#fff" />}
       </TouchableOpacity>
+
+      <SyncModal
+        visible={syncModalVisible}
+        onClose={() => setSyncModalVisible(false)}
+        onSyncComplete={() => { setSyncModalVisible(false); fetchBooks(); }}
+      />
 
       {uploadNode}
       
@@ -301,12 +446,13 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     color: '#fff', fontSize: 16, fontWeight: 'bold', marginTop: 16
   },
   safe: { flex: 1, backgroundColor: colors.background },
-  searchContainer: {
-    paddingHorizontal: 16, paddingVertical: 12,
+  topBar: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
     backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border,
+    gap: 12,
   },
   searchInner: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.inputBg,
+    flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.inputBg,
     borderRadius: 14, height: 46,
   },
   searchInput: {
@@ -318,6 +464,19 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   aiToggleActive: { backgroundColor: colors.primary },
+  syncBtn: {
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  breadcrumbs: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 10,
+    backgroundColor: isDark ? colors.background : '#FDFDFD',
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  breadcrumbItem: { paddingVertical: 4 },
+  breadcrumbText: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
+  breadcrumbActive: { color: colors.primary, fontWeight: '800' },
   aiBar: {
     backgroundColor: isDark ? 'rgba(187,134,252,0.05)' : '#F7F8FC', 
     paddingHorizontal: 16, paddingVertical: 12,
@@ -340,8 +499,57 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     backgroundColor: isDark ? '#1D122B' : '#F5E8FA', 
     paddingHorizontal: 16, paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: colors.border,
+    borderRadius: 12, marginBottom: 16,
   },
   aiResultsLabel: { color: colors.primary, fontWeight: '700', fontSize: 14 },
+  collectionsSection: { marginBottom: 8 },
+  sectionHeader: { 
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
+    marginBottom: 16, 
+  },
+  sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
+  seeAllText: { fontSize: 13, color: colors.primary, fontWeight: '700' },
+  collectionsVertical: { gap: 12 },
+  collectionsGrid: { 
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between',
+    gap: 0, // Handled by width: 48% and margin
+  },
+  gridCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+  },
+  gridIconContainer: {
+    width: 60, height: 60,
+    borderRadius: 18,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 12,
+  },
+  gridName: {
+    fontSize: 16, fontWeight: '700', color: colors.text,
+    textAlign: 'center', marginBottom: 4,
+  },
+  gridCount: {
+    fontSize: 12, color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  listCard: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card,
+    borderRadius: 16, padding: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  listIconContainer: {
+    width: 48, height: 48, borderRadius: 12,
+    justifyContent: 'center', alignItems: 'center', marginRight: 12,
+  },
+  listName: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 2 },
+  listCount: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
   bookCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 16,
     marginBottom: 12, padding: 12,
@@ -372,6 +580,11 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   moodChipText: { fontSize: 11, color: colors.textSecondary, fontWeight: '700', textTransform: 'uppercase' },
   empty: { alignItems: 'center', marginTop: 100 },
   emptyText: { fontSize: 16, color: colors.textSecondary, fontWeight: '500', textAlign: 'center' },
+  syncRefBtn: {
+    marginTop: 20, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12,
+    borderRadius: 16,
+  },
+  syncRefBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
   fab: {
     position: 'absolute', bottom: 30, right: 30, width: 64, height: 64,
     borderRadius: 32, backgroundColor: colors.primary, justifyContent: 'center',

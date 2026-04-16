@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, TextInput } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
+import { getValidGoogleAccessToken } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
 import { 
-  Star, User, Calendar, ChevronLeft, ChevronDown, ChevronUp, Share2, 
-  ExternalLink, Languages, Book, Clock, Download, Mail
+  Star, User, Calendar, ChevronLeft, ChevronDown, ChevronUp,
+  ExternalLink, Languages, Book, Clock, Mail
 } from 'lucide-react-native';
 
 type Props = {
@@ -227,12 +227,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
     setSendingEmail(true);
     try {
-      const providerToken = await SecureStore.getItemAsync('google_provider_token');
-      if (!providerToken) {
-        Alert.alert('Session Expired', 'Please log out and log in again to refresh your Google Drive access.');
-        setSendingEmail(false);
-        return;
-      }
+      const providerToken = await getValidGoogleAccessToken();
 
       const { data, error } = await supabase.functions.invoke('send-to-kindle', {
         body: { 
@@ -280,9 +275,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <ChevronLeft size={24} color={colors.primary} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.shareBtn}>
-          <Share2 size={20} color={colors.primary} />
-        </TouchableOpacity>
+        <View style={{ width: 40 }} />
       </View>
 
       <View style={styles.content}>
@@ -381,11 +374,6 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         <Text style={styles.description}>{displayDescription}</Text>
 
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => {/* Download or open logic */}}>
-            <Download size={20} color="#fff" style={{ marginRight: 10 }} />
-            <Text style={styles.buttonText}>Download / Open</Text>
-          </TouchableOpacity>
-          
           <TouchableOpacity 
             style={styles.secondaryButton} 
             onPress={handleSendToKindle}
@@ -434,9 +422,6 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 12,
   },
   backBtn: {
-    padding: 8, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-  },
-  shareBtn: {
     padding: 8, borderRadius: 12, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
   },
   content: {
@@ -582,19 +567,6 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   actions: {
     gap: 16,
     marginBottom: 40,
-  },
-  primaryButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 18,
-    borderRadius: 20,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2, shadowRadius: 12, elevation: 4,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: 'bold',
   },
   secondaryButton: {
     backgroundColor: colors.card,

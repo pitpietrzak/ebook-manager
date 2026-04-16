@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as SecureStore from 'expo-secure-store';
 import { uploadFileToDrive, getOrCreateFolder } from '../utils/drive';
+import { getValidGoogleAccessToken } from '../utils/googleAuth';
 import { supabase } from '../utils/supabase';
 import FolderPickerModal from '../components/FolderPickerModal';
 
@@ -53,8 +53,7 @@ export function useBookUpload(onSuccess: () => void) {
   const executeUpload = async (file: any, targetFolderId: string | null, targetFolderName?: string) => {
     try {
       setIsUploading(true);
-      const providerToken = await SecureStore.getItemAsync('google_provider_token');
-      if (!providerToken) throw new Error('Missing Google token. Please logout and login again.');
+      const providerToken = await getValidGoogleAccessToken();
 
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
       let finalFolderId = targetFolderId;

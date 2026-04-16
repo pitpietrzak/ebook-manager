@@ -9,7 +9,7 @@ import { CompositeNavigationProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, TabParamList } from '../../App';
 import { supabase } from '../utils/supabase';
-import * as SecureStore from 'expo-secure-store';
+import { clearGoogleAuth } from '../utils/googleAuth';
 import SyncModal from './SyncModal';
 import NotificationModal from '../components/NotificationModal';
 import IconPickerModal from '../components/IconPickerModal';
@@ -147,7 +147,7 @@ export default function CollectionsScreen({ navigation }: Props) {
   }, []);
 
   const handleLogout = async () => {
-    await SecureStore.deleteItemAsync('google_provider_token');
+    await clearGoogleAuth();
     await supabase.auth.signOut();
   };
 

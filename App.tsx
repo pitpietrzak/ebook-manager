@@ -31,6 +31,7 @@ import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { ProfileProvider } from './src/contexts/ProfileContext';
 import { DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { LayoutDashboard, BookOpen, User as UserIcon } from 'lucide-react-native';
+import { validateGoogleSessionOnAppOpen } from './src/utils/googleAuth';
 
 // Additional Screen
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -78,6 +79,14 @@ function AppContent() {
       setSession(session);
     });
   }, []);
+
+  useEffect(() => {
+    if (!session?.user) return;
+
+    validateGoogleSessionOnAppOpen().catch(() => {
+      // signOut is handled inside the auth helper
+    });
+  }, [session?.user?.id]);
 
   const navTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),

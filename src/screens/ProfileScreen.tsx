@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, SafeAreaView, ScrollVi
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { supabase } from '../utils/supabase';
+import { clearGoogleAuth } from '../utils/googleAuth';
 import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail } from 'lucide-react-native';
 import InputModal from '../components/InputModal';
 
@@ -20,6 +21,7 @@ export default function ProfileScreen() {
   } | null>(null);
 
   const handleLogout = async () => {
+    await clearGoogleAuth();
     const { error } = await supabase.auth.signOut();
     if (error) Alert.alert('Error', error.message);
   };

@@ -3,8 +3,8 @@ import {
   View, Text, Modal, TouchableOpacity, StyleSheet, FlatList,
   TextInput, ActivityIndicator, Alert, ScrollView, SafeAreaView
 } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../utils/supabase';
+import { getValidGoogleAccessToken } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { 
   RefreshCw, Folder, FileText, BookOpen, Check, 
@@ -62,8 +62,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   const fetchDriveFolder = async (folderId: string) => {
     setLoadingDrive(true);
     try {
-      const token = await SecureStore.getItemAsync('google_provider_token');
-      if (!token) throw new Error('Missing Google token — please re-login');
+      const token = await getValidGoogleAccessToken();
 
       const query = `'${folderId}' in parents and trashed = false`;
       const res = await fetch(
@@ -140,8 +139,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     setStep('syncing');
     setSyncProgress({ current: 0, total: 0, status: 'Scanning Google Drive...' });
     try {
-      const token = await SecureStore.getItemAsync('google_provider_token');
-      if (!token) throw new Error('Missing Google token');
+      const token = await getValidGoogleAccessToken();
 
       const { data, error } = await supabase.functions.invoke('sync-drive', {
         body: { providerToken: token, sharedFolderId }

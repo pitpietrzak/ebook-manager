@@ -367,9 +367,6 @@ export default function LibraryScreen({ navigation, route }: Props) {
                 <View style={styles.collectionsSection}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Folders</Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Dashboard')}>
-                      <Text style={styles.seeAllText}>Manage</Text>
-                    </TouchableOpacity>
                   </View>
                   <View style={[styles.collectionsVertical, viewMode === 'grid' && styles.collectionsGrid]}>
                     <View style={viewMode === 'grid' ? { width: '48%' } : { width: '100%' }}>

@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-na
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Linking from 'expo-linking';
-import * as SecureStore from 'expo-secure-store';
 import { supabase } from '../utils/supabase';
+import { saveGoogleAuth } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
 
@@ -52,9 +52,11 @@ export default function LoginScreen() {
             const access_token = params.get('access_token');
             const refresh_token = params.get('refresh_token');
             const provider_token = params.get('provider_token');
+            const provider_refresh_token = params.get('provider_refresh_token');
+            const expires_in = Number(params.get('expires_in') || '3300');
             
             if (provider_token) {
-              await SecureStore.setItemAsync('google_provider_token', provider_token);
+              await saveGoogleAuth(provider_token, expires_in, provider_refresh_token);
             }
             
             if (access_token && refresh_token) {

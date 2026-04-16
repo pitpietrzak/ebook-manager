@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Alert } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { listDriveFolders, createDriveFolder } from '../utils/drive';
+import { getValidGoogleAccessToken } from '../utils/googleAuth';
 
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -28,8 +28,7 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
   const fetchFolders = async () => {
     try {
       setLoading(true);
-      const token = await SecureStore.getItemAsync('google_provider_token');
-      if (!token) throw new Error('No Google token available');
+      const token = await getValidGoogleAccessToken();
       
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
       if (!rootId) throw new Error('Shared folder ID is missing in .env');
@@ -48,9 +47,9 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
     if (!trimmed) return;
     try {
       setCreating(true);
-      const token = await SecureStore.getItemAsync('google_provider_token');
+      const token = await getValidGoogleAccessToken();
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
-      if (!token || !rootId) throw new Error('Missing auth or root folder config');
+      if (!rootId) throw new Error('Missing auth or root folder config');
 
       const newFolder = await createDriveFolder(trimmed, token, rootId);
       setNewFolderName('');

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, StatusBar, SafeAreaView, ScrollView, Dimensions
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, StatusBar, SafeAreaView, ScrollView, Dimensions
 } from 'react-native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp } from '@react-navigation/native';
@@ -200,16 +200,13 @@ export default function DashboardScreen({ navigation }: Props) {
             </TouchableOpacity>
           </View>
         </View>
-        <FlatList
-          data={collections}
-          key={viewMode}
-          keyExtractor={item => item.name}
-          renderItem={renderCollectionCard}
-          numColumns={viewMode === 'grid' ? 2 : 1}
-          columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 8 }}
-          scrollEnabled={false}
-        />
+        <View style={[styles.collectionsWrap, viewMode === 'grid' && styles.collectionsGrid]}>
+          {collections.map((item, index) => (
+            <View key={item.name} style={viewMode === 'grid' ? styles.gridItemWrap : undefined}>
+              {renderCollectionCard({ item, index })}
+            </View>
+          ))}
+        </View>
       </ScrollView>
       {loading && <View style={styles.loadingOverlay}><ActivityIndicator size="large" color={colors.primary} /></View>}
     </SafeAreaView>
@@ -290,6 +287,18 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     borderColor: colors.border,
   },
   emptyReviewText: { fontSize: 14, color: colors.textSecondary, fontWeight: '600' },
+  collectionsWrap: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  collectionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  gridItemWrap: {
+    width: '48%',
+  },
   gridRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   gridCard: {
     backgroundColor: colors.card, borderRadius: 20, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.border, alignItems: 'center',

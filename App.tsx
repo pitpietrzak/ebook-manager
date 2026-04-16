@@ -8,6 +8,7 @@ import { supabase } from './src/utils/supabase';
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
 import CollectionsScreen from './src/screens/CollectionsScreen';
+import DashboardScreen from './src/screens/DashboardScreen';
 import LibraryScreen from './src/screens/LibraryScreen';
 import BookDetailScreen from './src/screens/BookDetailScreen';
 
@@ -57,7 +58,7 @@ function TabNavigator() {
         },
       })}
     >
-      <Tab.Screen name="Dashboard" component={CollectionsScreen} />
+      <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Library" component={LibraryScreen} initialParams={{ collectionFilter: null }} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>

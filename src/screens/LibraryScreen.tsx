@@ -20,6 +20,8 @@ import {
 } from 'lucide-react-native';
 import SyncModal from './SyncModal';
 import DynamicIcon from '../components/DynamicIcon';
+import IconPickerModal from '../components/IconPickerModal';
+import { getSortedCollections } from '../utils/collections';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -45,6 +47,8 @@ type Book = {
   profiles?: { display_name: string } | null;
 };
 
+const COLLECTION_COLORS = ['#8B5CF6', '#D946EF', '#F43F5E', '#6366F1', '#EC4899', '#3B82F6', '#06B6D4', '#10B981'];
+
 export default function LibraryScreen({ navigation, route }: Props) {
   const collectionFilter = route.params?.collectionFilter ?? null;
   const autoFocusSearch = route.params?.autoFocusSearch ?? false;
@@ -56,6 +60,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<{ name: string; index: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [aiSearchMode, setAiSearchMode] = useState(false);
   const [aiSearching, setAiSearching] = useState(false);
@@ -77,20 +83,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
   }, [autoFocusSearch]);
 
   const fetchCollections = useCallback(async (books: Book[]) => {
-    const tagCounts: Record<string, number> = {};
-    books.forEach(book => {
-      const tags = book.folder_tags || [];
-      if (tags.length === 0) {
-        tagCounts['Uncategorised'] = (tagCounts['Uncategorised'] || 0) + 1;
-      } else {
-        tags.forEach(tag => {
-          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-        });
-      }
-    });
-    const sorted = Object.entries(tagCounts)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    const sorted = getSortedCollections(books);
     setCollections(sorted);
     fetchCollectionIcons(sorted.map(c => c.name));
   }, []);
@@ -195,12 +188,30 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setSearchQuery('');
   };
 
+  const handleIconSelect = async (iconName: string) => {
+    if (!editingCollection) return;
+
+    const { name } = editingCollection;
+
+    setIconMap(prev => ({ ...prev, [name]: iconName }));
+    setPickerVisible(false);
+
+    try {
+      const { error } = await supabase
+        .from('collection_icons')
+        .upsert({ name, icon_name: iconName });
+
+      if (error) throw error;
+    } catch (e) {
+      console.error('Failed to save icon:', e);
+    }
+  };
+
   // Hide books on home explorer view unless searching or AI results exist
   const booksToShow = (isHomeView && !searchQuery && !aiResults) ? [] : (aiResults ?? displayedBooks);
 
   const renderCollectionItem = ({ item, index }: { item: { name: string, count: number }, index: number }) => {
     const isGrid = viewMode === 'grid';
-    const COLLECTION_COLORS = ['#8B5CF6', '#D946EF', '#F43F5E', '#6366F1', '#EC4899', '#3B82F6', '#06B6D4', '#10B981'];
     const color = item.name === 'All Books' ? colors.primary : COLLECTION_COLORS[index % COLLECTION_COLORS.length];
     
     return (
@@ -209,6 +220,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
         onPress={() => navigation.navigate('Library', {
           collectionFilter: item.name === 'All Books' ? '__all__' : (item.name === 'Uncategorised' ? '__uncategorised__' : item.name)
         })}
+        onLongPress={() => {
+          if (item.name !== 'All Books' && item.name !== 'Uncategorised') {
+            setEditingCollection({ name: item.name, index });
+            setPickerVisible(true);
+          }
+        }}
+        delayLongPress={300}
         activeOpacity={0.7}
       >
         <View style={[isGrid ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}>
@@ -269,7 +287,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
-      
+
       <View style={styles.topBar}>
         <View style={styles.searchInner}>
           <Search size={18} color={isDark ? '#888' : '#AAA'} style={{ marginLeft: 12 }} />
@@ -373,7 +391,6 @@ export default function LibraryScreen({ navigation, route }: Props) {
             </>
           }
           ListEmptyComponent={
-            // If we are at root and have folders, don't show an "Empty Books" message under the folders
             (isHomeView && collections.length > 0 && !searchQuery) ? null : (
               <View style={styles.empty}>
                 <Inbox size={64} color={colors.border} strokeWidth={1} style={{ marginBottom: 16 }} />
@@ -421,13 +438,22 @@ export default function LibraryScreen({ navigation, route }: Props) {
       />
 
       {uploadNode}
-      
+
       {isUploading && (
         <View style={styles.uploadingOverlay}>
           <ActivityIndicator size="large" color="#fff" />
           <Text style={styles.uploadingText}>Uploading & Processing...</Text>
         </View>
       )}
+
+      {/* Icon Picker Modal for collections */}
+      <IconPickerModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        onSelect={handleIconSelect}
+        collectionName={editingCollection?.name || ''}
+        currentColor={editingCollection ? COLLECTION_COLORS[editingCollection.index % COLLECTION_COLORS.length] : colors.primary}
+      />
     </SafeAreaView>
   );
 }

@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, StatusBar, SafeAreaView
 } from 'react-native';
+import { getSortedCollections } from '../utils/collections';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -91,22 +92,8 @@ export default function CollectionsScreen({ navigation }: Props) {
 
     setTotalBooks(data.length);
 
-    // Count books per tag
-    const tagCounts: Record<string, number> = {};
-    data.forEach((book: any) => {
-      const tags: string[] = book.folder_tags || [];
-      if (tags.length === 0) {
-        tagCounts['Uncategorised'] = (tagCounts['Uncategorised'] || 0) + 1;
-      } else {
-        tags.forEach(tag => {
-          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-        });
-      }
-    });
 
-    const sorted = Object.entries(tagCounts)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    const sorted = getSortedCollections(data);
 
     setCollections(sorted);
     setLoading(false);

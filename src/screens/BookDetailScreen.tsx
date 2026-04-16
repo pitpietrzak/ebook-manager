@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, TextInput } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -9,7 +9,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
 import { 
-  Star, User, Calendar, ChevronLeft, Share2, 
+  Star, User, Calendar, ChevronLeft, ChevronDown, ChevronUp, Share2, 
   ExternalLink, Languages, Book, Clock, Download, Mail
 } from 'lucide-react-native';
 
@@ -40,8 +40,11 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [showPolish, setShowPolish] = useState(false);
   const [userRating, setUserRating] = useState<number | null>(null);
+  const [userReview, setUserReview] = useState('');
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [ratingCount, setRatingCount] = useState(0);
+  const [savingReview, setSavingReview] = useState(false);
+  const [reviewExpanded, setReviewExpanded] = useState(false);
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -57,11 +60,14 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       if (user) {
         const { data } = await supabase
           .from('book_ratings')
-          .select('rating')
+          .select('rating, review')
           .eq('book_id', bookId)
           .eq('user_id', user.id)
-          .single();
-        if (data) setUserRating(data.rating);
+          .maybeSingle();
+        if (data) {
+          setUserRating(data.rating);
+          setUserReview(data.review || '');
+        }
       }
 
       const { data: allRatings } = await supabase
@@ -92,7 +98,8 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         .upsert({
           book_id: bookId,
           user_id: user.id,
-          rating
+          rating,
+          review: userReview.trim() || null,
         }, { onConflict: 'user_id,book_id' });
 
       if (error) throw error;
@@ -100,6 +107,39 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       fetchRatings();
     } catch (e: any) {
       Alert.alert('Error', e.message);
+    }
+  };
+
+  const handleSaveReview = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Login required', 'Please log in to save your rating or note.');
+        return;
+      }
+
+      if (!userRating) {
+        Alert.alert('Pick a rating', 'Choose a star rating before saving your note.');
+        return;
+      }
+
+      setSavingReview(true);
+      const { error } = await supabase
+        .from('book_ratings')
+        .upsert({
+          book_id: bookId,
+          user_id: user.id,
+          rating: userRating,
+          review: userReview.trim() || null,
+        }, { onConflict: 'user_id,book_id' });
+
+      if (error) throw error;
+      fetchRatings();
+      Alert.alert('Saved', userReview.trim() ? 'Your review was saved.' : 'Your rating was updated.');
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setSavingReview(false);
     }
   };
 
@@ -138,6 +178,53 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       return;
     }
 
+    const getFriendlyKindleError = (rawMessage?: string) => {
+      const message = (rawMessage || '').toLowerCase();
+
+      if (message.includes('too large') || message.includes('memory limit')) {
+        return {
+          title: 'File too large',
+          body: 'This book is too large to send from the app. Please download it and send it to Kindle manually.'
+        };
+      }
+
+      if (message.includes('session') || message.includes('token') || message.includes('unauthorized')) {
+        return {
+          title: 'Session expired',
+          body: 'Please log in again and try sending the book one more time.'
+        };
+      }
+
+      if (message.includes('gmail api')) {
+        return {
+          title: 'Unable to send right now',
+          body: 'Gmail could not process this request at the moment. Please try again in a little while.'
+        };
+      }
+
+      return {
+        title: 'Unable to send to Kindle',
+        body: rawMessage || 'Something went wrong while sending this book. Please try again in a moment.'
+      };
+    };
+
+    const extractKindleErrorMessage = async (errorObj?: any, responseData?: any) => {
+      if (typeof responseData?.error === 'string' && responseData.error.trim()) {
+        return responseData.error;
+      }
+
+      if (errorObj?.context) {
+        try {
+          const contextData = await errorObj.context.json();
+          if (typeof contextData?.error === 'string' && contextData.error.trim()) {
+            return contextData.error;
+          }
+        } catch {}
+      }
+
+      return errorObj?.message || 'Something went wrong while sending this book. Please try again in a moment.';
+    };
+
     setSendingEmail(true);
     try {
       const providerToken = await SecureStore.getItemAsync('google_provider_token');
@@ -154,18 +241,19 @@ export default function BookDetailScreen({ navigation, route }: Props) {
           providerToken 
         }
       });
-      
+
       if (error || data?.error || !data?.success) {
-        console.error('[SendToKindle] Invoke Error:', error);
-        console.error('[SendToKindle] Invoke Data:', data);
-        const errorMsg = error?.message || data?.error || 'Unknown error occurred.';
-        throw new Error(`${errorMsg}`);
+        const errorMsg = await extractKindleErrorMessage(error, data);
+        const friendly = getFriendlyKindleError(errorMsg);
+        Alert.alert(friendly.title, friendly.body);
+        return;
       }
-      
+
       Alert.alert('Success', 'Book sent to your Kindle!');
     } catch (e: any) {
-      console.error('[SendToKindle] Catch Error:', e);
-      Alert.alert('Error', e.message || 'Could not send to Kindle.');
+      const errorMsg = await extractKindleErrorMessage(e);
+      const friendly = getFriendlyKindleError(errorMsg);
+      Alert.alert(friendly.title, friendly.body);
     } finally {
       setSendingEmail(false);
     }
@@ -212,21 +300,57 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.ratingSection}>
-          <View style={styles.stars}>
-            {[1, 2, 3, 4, 5].map((s) => (
-              <TouchableOpacity key={s} onPress={() => handleRate(s)}>
-                <Star 
-                  size={24} 
-                  fill={s <= (userRating || 0) ? '#FFD700' : 'transparent'} 
-                  color={s <= (userRating || 0) ? '#FFD700' : isDark ? '#3A2552' : '#DDD'} 
-                />
+          <TouchableOpacity
+            style={styles.ratingHeaderBtn}
+            activeOpacity={0.8}
+            onPress={() => setReviewExpanded(v => !v)}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sectionTitle}>Rate this book</Text>
+              <Text style={styles.reviewHint}>Tap to {reviewExpanded ? 'hide' : 'add'} your rating and optional note</Text>
+            </View>
+            <View style={styles.ratingHeaderRight}>
+              {avgRating !== null && (
+                <Text style={styles.avgRating}>
+                  {avgRating.toFixed(1)} <Text style={{ fontSize: 12, fontWeight: '400' }}>({ratingCount} ratings)</Text>
+                </Text>
+              )}
+              {reviewExpanded ? <ChevronUp size={18} color={colors.textSecondary} /> : <ChevronDown size={18} color={colors.textSecondary} />}
+            </View>
+          </TouchableOpacity>
+
+          {reviewExpanded && (
+            <>
+              <View style={styles.stars}>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <TouchableOpacity key={s} onPress={() => handleRate(s)}>
+                    <Star 
+                      size={24} 
+                      fill={s <= (userRating || 0) ? '#FFD700' : 'transparent'} 
+                      color={s <= (userRating || 0) ? '#FFD700' : isDark ? '#3A2552' : '#DDD'} 
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="What did you think?"
+                placeholderTextColor={colors.textSecondary}
+                value={userReview}
+                onChangeText={setUserReview}
+                multiline
+                textAlignVertical="top"
+                maxLength={300}
+              />
+              <TouchableOpacity
+                style={[styles.saveReviewBtn, savingReview && { opacity: 0.7 }]}
+                onPress={handleSaveReview}
+                disabled={savingReview}
+              >
+                <Text style={styles.saveReviewText}>{savingReview ? 'Saving...' : 'Save rating & note'}</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-          {avgRating !== null && (
-            <Text style={styles.avgRating}>
-              {avgRating.toFixed(1)} <Text style={{ fontSize: 12, fontWeight: '400' }}>({ratingCount} reviews)</Text>
-            </Text>
+            </>
           )}
         </View>
 
@@ -353,23 +477,62 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontWeight: '600'
   },
   ratingSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     marginBottom: 24,
     backgroundColor: colors.card,
     padding: 16,
     borderRadius: 20,
     borderWidth: 1, borderColor: colors.border,
   },
+  ratingHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  ratingHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   stars: {
     flexDirection: 'row',
     gap: 6,
+    marginTop: 14,
+    marginBottom: 12,
   },
   avgRating: {
     fontSize: 18,
     color: colors.text,
     fontWeight: '700',
+  },
+  reviewHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  reviewInput: {
+    minHeight: 96,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    color: colors.text,
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  saveReviewBtn: {
+    backgroundColor: colors.primary,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  saveReviewText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 14,
   },
   tagsContainer: {
     flexDirection: 'row',

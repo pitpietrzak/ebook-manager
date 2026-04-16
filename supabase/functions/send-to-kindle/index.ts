@@ -31,7 +31,25 @@ serve(async (req) => {
 
     if (bookError || !book) throw new Error('Book not found');
 
-    // 2. Fetch the file from Google Drive
+    // 2. Check file metadata first to avoid memory blowups on large books
+    const metaResponse = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${book.drive_file_id}?fields=name,size,mimeType`,
+      { headers: { Authorization: `Bearer ${providerToken}` } }
+    );
+
+    if (!metaResponse.ok) {
+      throw new Error(`Failed to fetch Google Drive metadata: ${metaResponse.statusText}`);
+    }
+
+    const meta = await metaResponse.json();
+    const fileSizeBytes = Number(meta.size || 0);
+    const maxRecommendedBytes = 18 * 1024 * 1024;
+
+    if (fileSizeBytes > maxRecommendedBytes) {
+      throw new Error('This ebook is too large to send through Gmail from the app. Download it and send it to Kindle manually.');
+    }
+
+    // 3. Fetch the file from Google Drive
     const driveResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${book.drive_file_id}?alt=media`, {
       headers: { Authorization: `Bearer ${providerToken}` }
     });
@@ -40,11 +58,12 @@ serve(async (req) => {
       throw new Error(`Failed to download from Google Drive: ${driveResponse.statusText}`);
     }
 
-    const fileBuffer = await driveResponse.arrayBuffer();
-    const base64Attachment = encode(fileBuffer);
-    const safeTitle = book.title.replace(/[^a-zA-Z0-9]/g, '_');
+    const fileBytes = new Uint8Array(await driveResponse.arrayBuffer());
+    const base64Attachment = encode(fileBytes);
+    const safeFileName = (meta.name || `${book.title}.epub`).replace(/["\\]/g, '_');
+    const attachmentMimeType = meta.mimeType || 'application/octet-stream';
 
-    // 3. Construct MIME Message (RFC 5322)
+    // 4. Construct MIME Message (RFC 5322)
     const boundary = "sloth_library_boundary";
     const mimeParts = [
       `To: ${email}`,
@@ -59,8 +78,8 @@ serve(async (req) => {
       `Sent from your Sloth Library app.`,
       ``,
       `--${boundary}`,
-      `Content-Type: application/epub+zip`,
-      `Content-Disposition: attachment; filename="${safeTitle}.epub"`,
+      `Content-Type: ${attachmentMimeType}`,
+      `Content-Disposition: attachment; filename="${safeFileName}"`,
       `Content-Transfer-Encoding: base64`,
       ``,
       base64Attachment,
@@ -69,22 +88,14 @@ serve(async (req) => {
 
     const mimeMessage = mimeParts.join("\r\n");
 
-    // Convert to base64url (UTF-8 safe)
-    const base64Mime = encode(new TextEncoder().encode(mimeMessage))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    // 4. Send via Gmail API
-    const gmailResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    // 5. Send via Gmail upload API to avoid an extra full-message base64 copy in memory
+    const gmailResponse = await fetch('https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${providerToken}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'message/rfc822',
       },
-      body: JSON.stringify({
-        raw: base64Mime
-      }),
+      body: mimeMessage,
     });
 
     if (!gmailResponse.ok) {

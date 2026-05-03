@@ -4,7 +4,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
-import { getValidGoogleAccessToken } from '../utils/googleAuth';
+import { getValidGoogleAccessToken, isGoogleAuthError } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
@@ -227,18 +227,27 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
     setSendingEmail(true);
     try {
-      const providerToken = await getValidGoogleAccessToken();
+      const invokeSendToKindle = async (providerToken: string) => {
+        return supabase.functions.invoke('send-to-kindle', {
+          body: {
+            bookId,
+            email: profile.kindle_email,
+            providerToken,
+          },
+        });
+      };
 
-      const { data, error } = await supabase.functions.invoke('send-to-kindle', {
-        body: { 
-          bookId, 
-          email: profile.kindle_email,
-          providerToken 
-        }
-      });
+      let providerToken = await getValidGoogleAccessToken();
+      let { data, error } = await invokeSendToKindle(providerToken);
+      let errorMsg = await extractKindleErrorMessage(error, data);
+
+      if ((error || data?.error || !data?.success) && isGoogleAuthError(errorMsg)) {
+        providerToken = await getValidGoogleAccessToken({ forceRefresh: true });
+        ({ data, error } = await invokeSendToKindle(providerToken));
+        errorMsg = await extractKindleErrorMessage(error, data);
+      }
 
       if (error || data?.error || !data?.success) {
-        const errorMsg = await extractKindleErrorMessage(error, data);
         const friendly = getFriendlyKindleError(errorMsg);
         Alert.alert(friendly.title, friendly.body);
         return;

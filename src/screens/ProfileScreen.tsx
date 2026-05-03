@@ -151,7 +151,7 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
 
-        <Text style={styles.footerText}>Biblioteczka Leniwców v1.1.0</Text>
+        <Text style={styles.footerText}>Biblioteczka Leniwcow v1.1.0</Text>
       </ScrollView>
 
       {modalConfig && (

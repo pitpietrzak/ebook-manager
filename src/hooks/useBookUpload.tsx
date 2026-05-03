@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { uploadFileToDrive, getOrCreateFolder } from '../utils/drive';
-import { getValidGoogleAccessToken } from '../utils/googleAuth';
+import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 import { supabase } from '../utils/supabase';
 import FolderPickerModal from '../components/FolderPickerModal';
 
@@ -53,24 +53,35 @@ export function useBookUpload(onSuccess: () => void) {
   const executeUpload = async (file: any, targetFolderId: string | null, targetFolderName?: string) => {
     try {
       setIsUploading(true);
-      const providerToken = await getValidGoogleAccessToken();
-
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
-      let finalFolderId = targetFolderId;
+      const driveData = await withGoogleAccessTokenRetry(async (providerToken) => {
+        let finalFolderId = targetFolderId;
 
-      // If we only have a targetFolderName (because of direct contextual upload), resolve the ID
-      if (!finalFolderId && targetFolderName && rootId) {
-        const folder = await getOrCreateFolder(targetFolderName, providerToken, rootId);
-        finalFolderId = folder.id;
-      }
+        // If we only have a targetFolderName (because of direct contextual upload), resolve the ID
+        if (!finalFolderId && targetFolderName && rootId) {
+          const folder = await getOrCreateFolder(targetFolderName, providerToken, rootId);
+          finalFolderId = folder.id;
+        }
 
-      // 1. Upload to Drive
-      const driveData = await uploadFileToDrive(file.uri, file.name, file.mimeType || 'application/epub+zip', providerToken, finalFolderId || undefined);
+        // 1. Upload to Drive
+        return uploadFileToDrive(
+          file.uri,
+          file.name,
+          file.mimeType || 'application/epub+zip',
+          providerToken,
+          finalFolderId || undefined
+        );
+      });
 
       // 2. Trigger Edge Function to process metadata and save to DB
       const folderTags = targetFolderName ? [targetFolderName] : [];
       const { error } = await supabase.functions.invoke('process-ebook', {
-        body: { driveFileId: driveData.id, fileName: file.name, folderTags }
+        body: {
+          driveFileId: driveData.id,
+          fileName: file.name,
+          folderTags,
+          driveUploadedAt: driveData.createdTime || null,
+        }
       });
 
       if (error) throw new Error(error.message);

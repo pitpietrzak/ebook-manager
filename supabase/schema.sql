@@ -7,6 +7,7 @@ with
 create table public.books (
   id uuid primary key default gen_random_uuid(),
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  drive_uploaded_at timestamp with time zone,
   title text not null,
   author text,
   genre text,

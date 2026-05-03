@@ -186,7 +186,8 @@ export default function CollectionsScreen({ navigation }: Props) {
       <TouchableOpacity
         style={isGrid ? styles.gridCard : styles.listCard}
         onPress={() => navigation.navigate('Library', {
-          collectionFilter: item.name === 'Uncategorised' ? '__uncategorised__' : item.name
+          screen: 'LibraryCatalog',
+          params: { collectionFilter: item.name === 'Uncategorised' ? '__uncategorised__' : item.name }
         })}
         onLongPress={() => {
           if (item.name !== 'Uncategorised') {
@@ -224,7 +225,7 @@ export default function CollectionsScreen({ navigation }: Props) {
             adjustsFontSizeToFit={true}
             minimumFontScale={0.7}
           >
-            Biblioteczka Leniwców
+            Biblioteczka Leniwcow
           </Text>
           <Text style={styles.headerSubtitle}>{totalBooks} books in your collection</Text>
         </View>
@@ -241,7 +242,10 @@ export default function CollectionsScreen({ navigation }: Props) {
 
       <TouchableOpacity
         style={styles.searchBar}
-        onPress={() => navigation.navigate('Library', { collectionFilter: null, autoFocusSearch: true })}
+        onPress={() => navigation.navigate('Library', {
+          screen: 'LibraryHome',
+          params: { collectionFilter: null, autoFocusSearch: true }
+        })}
         activeOpacity={0.8}
       >
         <Search size={20} color={colors.textSecondary} style={{ marginRight: 10 }} />
@@ -262,7 +266,10 @@ export default function CollectionsScreen({ navigation }: Props) {
           ListHeaderComponent={
             <TouchableOpacity
               style={styles.allBooksCard}
-              onPress={() => navigation.navigate('Library', { collectionFilter: '__all__' })}
+              onPress={() => navigation.navigate('Library', {
+                screen: 'LibraryCatalog',
+                params: { collectionFilter: '__all__' }
+              })}
             >
               <View style={[styles.allBooksIcon, { backgroundColor: colors.primary + '22' }]}>
                 <Library size={32} color={colors.primary} />

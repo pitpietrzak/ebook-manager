@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Session } from '@supabase/supabase-js';
@@ -12,20 +12,31 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import LibraryScreen from './src/screens/LibraryScreen';
 import BookDetailScreen from './src/screens/BookDetailScreen';
 
+type LibraryRouteParams = {
+  collectionFilter?: string | null;
+  autoFocusSearch?: boolean;
+};
+
 export type RootStackParamList = {
   Login: undefined;
   Main: undefined; // Tab Navigator
   BookDetail: { bookId: string };
 };
 
+export type LibraryStackParamList = {
+  LibraryHome: LibraryRouteParams | undefined;
+  LibraryCatalog: { collectionFilter: string | null; autoFocusSearch?: boolean };
+};
+
 export type TabParamList = {
   Dashboard: undefined;
-  Library: { collectionFilter: string | null, autoFocusSearch?: boolean };
+  Library: NavigatorScreenParams<LibraryStackParamList> | undefined;
   Profile: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+const LibraryStack = createNativeStackNavigator<LibraryStackParamList>();
 
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { ProfileProvider } from './src/contexts/ProfileContext';
@@ -35,6 +46,19 @@ import { validateGoogleSessionOnAppOpen } from './src/utils/googleAuth';
 
 // Additional Screen
 import ProfileScreen from './src/screens/ProfileScreen';
+
+function LibraryNavigator() {
+  return (
+    <LibraryStack.Navigator screenOptions={{ headerShown: false, gestureEnabled: true }}>
+      <LibraryStack.Screen
+        name="LibraryHome"
+        component={LibraryScreen}
+        initialParams={{ collectionFilter: null }}
+      />
+      <LibraryStack.Screen name="LibraryCatalog" component={LibraryScreen} />
+    </LibraryStack.Navigator>
+  );
+}
 
 function TabNavigator() {
   const { colors, isDark } = useTheme();
@@ -60,7 +84,7 @@ function TabNavigator() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Library" component={LibraryScreen} initialParams={{ collectionFilter: null }} />
+      <Tab.Screen name="Library" component={LibraryNavigator} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

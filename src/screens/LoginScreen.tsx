@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-na
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Linking from 'expo-linking';
-import { supabase } from '../utils/supabase';
+import { getSupabaseConfigError, supabase } from '../utils/supabase';
 import { saveGoogleAuth } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
@@ -21,11 +21,30 @@ export default function LoginScreen() {
     // ... logic remains same ...
     try {
       setLoading(true);
-      const redirectUri = AuthSession.makeRedirectUri();
+
+      const configError = getSupabaseConfigError();
+      if (configError) {
+        throw new Error(`${configError}. Check your .env and restart Expo.`);
+      }
+
+      const googleClientId = (process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+      if (!googleClientId.endsWith('.apps.googleusercontent.com')) {
+        throw new Error('EXPO_PUBLIC_GOOGLE_CLIENT_ID must be a Google OAuth Client ID ending with .apps.googleusercontent.com');
+      }
+
+      let redirectUri = AuthSession.makeRedirectUri({ path: 'auth' });
+      if (!redirectUri.includes('://')) {
+        const fallbackUri = Linking.createURL('auth');
+        if (!fallbackUri.includes('://')) {
+          throw new Error('Generated redirect URI is invalid.');
+        }
+        redirectUri = fallbackUri;
+      }
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
+          skipBrowserRedirect: true,
           redirectTo: redirectUri,
           queryParams: {
             access_type: 'offline', 
@@ -42,7 +61,22 @@ export default function LoginScreen() {
       }
 
       if (data?.url) {
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+        let authUrl: URL;
+        try {
+          authUrl = new URL(data.url);
+        } catch {
+          throw new Error('Generated OAuth URL is invalid. Verify EXPO_PUBLIC_SUPABASE_URL and Auth settings.');
+        }
+
+        if (!['https:', 'http:'].includes(authUrl.protocol)) {
+          throw new Error('Generated OAuth URL has an unsupported protocol.');
+        }
+
+        if (authUrl.toString().includes('undefined')) {
+          throw new Error('Generated OAuth URL contains invalid parameters. Check Supabase Auth settings.');
+        }
+
+        const result = await WebBrowser.openAuthSessionAsync(authUrl.toString(), redirectUri);
         
         if (result.type === 'success') {
           const { url } = result;
@@ -72,6 +106,10 @@ export default function LoginScreen() {
           }
         }
       }
+
+      if (!data?.url) {
+        throw new Error('Supabase did not return an OAuth URL.');
+      }
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -91,7 +129,7 @@ export default function LoginScreen() {
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.title}>Biblioteczka Leniwców</Text>
+        <Text style={styles.title}>Biblioteczka Leniwcow</Text>
         <Text style={styles.subtitle}>Your stories, shared & organized.</Text>
       </View>
 

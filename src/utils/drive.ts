@@ -85,7 +85,7 @@ export const uploadFileToDrive = async (
     
     // Step 1: Initiate a resumable upload session
     const initResponse = await fetch(
-      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,createdTime',
       {
         method: 'POST',
         headers: {

@@ -6,7 +6,7 @@ import {
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList, TabParamList } from '../../App';
+import { RootStackParamList, TabParamList, LibraryStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
@@ -25,10 +25,13 @@ import { getSortedCollections } from '../utils/collections';
 
 type Props = {
   navigation: CompositeNavigationProp<
-    BottomTabNavigationProp<TabParamList, 'Library'>,
-    NativeStackNavigationProp<RootStackParamList>
+    NativeStackNavigationProp<LibraryStackParamList, 'LibraryHome'>,
+    CompositeNavigationProp<
+      BottomTabNavigationProp<TabParamList, 'Library'>,
+      NativeStackNavigationProp<RootStackParamList>
+    >
   >;
-  route: RouteProp<TabParamList, 'Library'>;
+  route: RouteProp<LibraryStackParamList, 'LibraryHome'> | RouteProp<LibraryStackParamList, 'LibraryCatalog'>;
 };
 
 type Book = {
@@ -103,9 +106,21 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const isAllView = collectionFilter === '__all__';
   const isHomeView = collectionFilter === null;
 
+  const openLibraryHome = () => {
+    navigation.navigate('LibraryHome', { collectionFilter: null });
+  };
+
+  const openCollection = (targetFilter: string) => {
+    navigation.navigate('LibraryCatalog', { collectionFilter: targetFilter });
+  };
+
   const fetchBooks = useCallback(async () => {
     setLoading(true);
-    let tryQuery = supabase.from('books').select('*, profiles(display_name)').order('created_at', { ascending: false });
+    let tryQuery = supabase
+      .from('books')
+      .select('*, profiles(display_name)')
+      .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
     
     if (collectionFilter === '__uncategorised__') {
       tryQuery = tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
@@ -121,7 +136,11 @@ export default function LibraryScreen({ navigation, route }: Props) {
       if (isHomeView) fetchCollections(data);
     } else {
       // Fallback (strict filtering)
-      let fallbackQuery = supabase.from('books').select('*').order('created_at', { ascending: false });
+      let fallbackQuery = supabase
+        .from('books')
+        .select('*')
+        .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false });
       if (collectionFilter === '__uncategorised__') {
         fallbackQuery = fallbackQuery.or('folder_tags.is.null,folder_tags.eq.{}');
       } else if (collectionFilter && !isAllView) {
@@ -171,15 +190,18 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setAiSearching(true);
     setAiResults(null);
 
-    const { data, error } = await supabase.functions.invoke('ai-search', {
-      body: { query: searchQuery }
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-search', {
+        body: { query: searchQuery }
+      });
 
-    setAiSearching(false);
-    if (!error && data) {
-      setAiResults(data);
-    } else {
-      Alert.alert('Search Error', error?.message || 'AI search failed');
+      if (error) throw error;
+      setAiResults(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      Alert.alert('Search Error', e?.message || 'AI search failed');
+      setAiResults([]);
+    } finally {
+      setAiSearching(false);
     }
   };
 
@@ -217,9 +239,9 @@ export default function LibraryScreen({ navigation, route }: Props) {
     return (
       <TouchableOpacity
         style={isGrid ? styles.gridCard : styles.listCard}
-        onPress={() => navigation.navigate('Library', {
-          collectionFilter: item.name === 'All Books' ? '__all__' : (item.name === 'Uncategorised' ? '__uncategorised__' : item.name)
-        })}
+        onPress={() => openCollection(
+          item.name === 'All Books' ? '__all__' : (item.name === 'Uncategorised' ? '__uncategorised__' : item.name)
+        )}
         onLongPress={() => {
           if (item.name !== 'All Books' && item.name !== 'Uncategorised') {
             setEditingCollection({ name: item.name, index });
@@ -314,8 +336,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
       </View>
 
       <View style={styles.breadcrumbs}>
+        {collectionFilter && (
+          <TouchableOpacity onPress={openLibraryHome} style={styles.backButton}>
+            <ChevronLeft size={16} color={colors.primary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity 
-          onPress={() => navigation.navigate('Library', { collectionFilter: null })}
+          onPress={openLibraryHome}
           style={styles.breadcrumbItem}
         >
           <Text style={[styles.breadcrumbText, isHomeView && styles.breadcrumbActive]}>Library</Text>
@@ -404,7 +431,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
                 {collectionFilter && !searchQuery && (
                   <TouchableOpacity 
                     style={styles.syncRefBtn} 
-                    onPress={() => navigation.navigate('Library', { collectionFilter: null })}
+                    onPress={openLibraryHome}
                   >
                     <Text style={styles.syncRefBtnText}>Back to Library</Text>
                   </TouchableOpacity>
@@ -497,6 +524,7 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     backgroundColor: isDark ? colors.background : '#FDFDFD',
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
+  backButton: { paddingVertical: 4, marginRight: 8 },
   breadcrumbItem: { paddingVertical: 4 },
   breadcrumbText: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
   breadcrumbActive: { color: colors.primary, fontWeight: '800' },

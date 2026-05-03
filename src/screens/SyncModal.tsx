@@ -4,7 +4,7 @@ import {
   TextInput, ActivityIndicator, Alert, ScrollView, SafeAreaView
 } from 'react-native';
 import { supabase } from '../utils/supabase';
-import { getValidGoogleAccessToken } from '../utils/googleAuth';
+import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { 
   RefreshCw, Folder, FileText, BookOpen, Check, 
@@ -22,6 +22,7 @@ type DriveItem = {
   id: string;
   name: string;
   mimeType: string;
+  createdTime?: string;
   isFolder: boolean;
 };
 
@@ -62,12 +63,12 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   const fetchDriveFolder = async (folderId: string) => {
     setLoadingDrive(true);
     try {
-      const token = await getValidGoogleAccessToken();
-
       const query = `'${folderId}' in parents and trashed = false`;
-      const res = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType)&orderBy=name`,
-        { headers: { Authorization: `Bearer ${token}` } }
+      const res = await withGoogleAccessTokenRetry((token) =>
+        fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,createdTime)&orderBy=name`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
       );
       const data = await res.json();
       if (data.error) throw new Error(data.error.message);
@@ -76,6 +77,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
         id: f.id,
         name: f.name,
         mimeType: f.mimeType,
+        createdTime: f.createdTime,
         isFolder: f.mimeType === 'application/vnd.google-apps.folder',
       })).filter((f: DriveItem) =>
         f.isFolder ||
@@ -139,16 +141,28 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     setStep('syncing');
     setSyncProgress({ current: 0, total: 0, status: 'Scanning Google Drive...' });
     try {
-      const token = await getValidGoogleAccessToken();
-
-      const { data, error } = await supabase.functions.invoke('sync-drive', {
-        body: { providerToken: token, sharedFolderId }
-      });
+      const { data, error } = await withGoogleAccessTokenRetry((token) =>
+        supabase.functions.invoke('sync-drive', {
+          body: { providerToken: token, sharedFolderId },
+        })
+      );
       if (error) throw new Error(error.message);
 
       const newBooks = data?.newBooks || [];
-      if (newBooks.length === 0) {
+      const movedBooksUpdated = Number(data?.movedBooksUpdated || 0);
+
+      if (newBooks.length === 0 && movedBooksUpdated === 0) {
         setSyncProgress({ current: 0, total: 0, status: 'All books are already synced! ✅' });
+        setTimeout(onSyncComplete, 1500);
+        return;
+      }
+
+      if (newBooks.length === 0 && movedBooksUpdated > 0) {
+        setSyncProgress({
+          current: 0,
+          total: 0,
+          status: `Updated ${movedBooksUpdated} moved book${movedBooksUpdated === 1 ? '' : 's'} ✅`
+        });
         setTimeout(onSyncComplete, 1500);
         return;
       }
@@ -159,12 +173,20 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
       for (const book of newBooks) {
         setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${book.fileName}` }));
         await supabase.functions.invoke('process-ebook', {
-          body: { driveFileId: book.driveFileId, fileName: book.fileName, folderTags: book.folderTags }
+          body: {
+            driveFileId: book.driveFileId,
+            fileName: book.fileName,
+            folderTags: book.folderTags,
+            driveUploadedAt: book.driveUploadedAt || null,
+          }
         });
         done++;
       }
 
-      setSyncProgress({ current: done, total: done, status: `Done! Synced ${done} new books ✅` });
+      const movedSuffix = movedBooksUpdated > 0
+        ? ` and updated ${movedBooksUpdated} moved book${movedBooksUpdated === 1 ? '' : 's'}`
+        : '';
+      setSyncProgress({ current: done, total: done, status: `Done! Synced ${done} new books${movedSuffix} ✅` });
       setTimeout(onSyncComplete, 1500);
     } catch (e: any) {
       setSyncProgress({ current: 0, total: 0, status: `Error: ${e.message}` });
@@ -192,7 +214,12 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     for (const file of selectedFiles) {
       setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${file.name}` }));
       await supabase.functions.invoke('process-ebook', {
-        body: { driveFileId: file.id, fileName: file.name, folderTags: tags }
+        body: {
+          driveFileId: file.id,
+          fileName: file.name,
+          folderTags: tags,
+          driveUploadedAt: file.createdTime || null,
+        }
       });
       done++;
     }

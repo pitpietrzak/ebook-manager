@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { driveFileId, fileName, folderTags = [] } = await req.json();
+    const { driveFileId, fileName, folderTags = [], driveUploadedAt = null } = await req.json();
 
     const openAiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('EXPO_PUBLIC_OPENAI_API_KEY');
     const supabaseClient = createClient(
@@ -140,6 +140,10 @@ Output a single JSON object:
     }
 
     const embedding = embedData.data[0].embedding;
+    const parsedDriveUploadedAt =
+      typeof driveUploadedAt === 'string' && !Number.isNaN(Date.parse(driveUploadedAt))
+        ? driveUploadedAt
+        : null;
 
     // 4. Upsert to Supabase
     const { data: insertedBook, error: insertError } = await supabaseClient
@@ -154,6 +158,7 @@ Output a single JSON object:
         moods,
         folder_tags: folderTags,
         drive_file_id: driveFileId,
+        ...(parsedDriveUploadedAt ? { drive_uploaded_at: parsedDriveUploadedAt } : {}),
         embedding,
         user_id: user.id
       }, { onConflict: 'drive_file_id' })

@@ -9,7 +9,7 @@ const corsHeaders = {
 // Recursive function to fetch files from Google Drive
 async function fetchFolderRecursive(folderId: string, currentTags: string[], providerToken: string, allFiles: any[] = []) {
   const query = `'${folderId}' in parents and trashed = false`;
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType)`, {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,createdTime)`, {
     headers: { Authorization: `Bearer ${providerToken}` }
   });
   
@@ -31,7 +31,8 @@ async function fetchFolderRecursive(folderId: string, currentTags: string[], pro
       allFiles.push({
         driveFileId: item.id,
         fileName: item.name,
-        folderTags: currentTags
+        folderTags: currentTags,
+        driveUploadedAt: item.createdTime || null,
       });
     }
   }
@@ -63,17 +64,42 @@ serve(async (req) => {
     // 2. Fetch all books and tags recursively from Drive
     const discoveredBooks = await fetchFolderRecursive(sharedFolderId, [], providerToken);
 
-    // 3. Fetch existing books from Supabase to prevent duplicates
-    const { data: existingBooks } = await supabaseClient.from('books').select('drive_file_id');
-    const existingFileIds = new Set(existingBooks?.map(b => b.drive_file_id) || []);
+    // 3. Fetch existing books from Supabase to prevent duplicates and detect moved files
+    const { data: existingBooks } = await supabaseClient
+      .from('books')
+      .select('id, drive_file_id, folder_tags');
+    const existingByDriveId = new Map<string, { id: string; drive_file_id: string; folder_tags: string[] | null }>(
+      (existingBooks || []).map((b: any) => [b.drive_file_id, b])
+    );
+    const existingFileIds = new Set(existingByDriveId.keys());
 
     const newBooksToProcess = discoveredBooks.filter(b => !existingFileIds.has(b.driveFileId));
+
+    // 4. Update folder tags for books that already exist but were moved in Drive
+    let movedBooksUpdated = 0;
+    for (const discovered of discoveredBooks) {
+      const existing = existingByDriveId.get(discovered.driveFileId);
+      if (!existing) continue;
+
+      const currentTags = Array.isArray(existing.folder_tags) ? existing.folder_tags : [];
+      const nextTags = Array.isArray(discovered.folderTags) ? discovered.folderTags : [];
+      if (JSON.stringify(currentTags) === JSON.stringify(nextTags)) continue;
+
+      const { error: updateError } = await supabaseClient
+        .from('books')
+        .update({ folder_tags: nextTags })
+        .eq('id', existing.id);
+
+      if (updateError) throw updateError;
+      movedBooksUpdated++;
+    }
 
     // For edge functions, processing too many files at once with OpenAI could timeout.
     // We return the list of new books so the client app can send them to process-ebook one-by-one.
     return new Response(JSON.stringify({ 
       success: true, 
       discoveredCount: discoveredBooks.length,
+      movedBooksUpdated,
       newBooks: newBooksToProcess
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

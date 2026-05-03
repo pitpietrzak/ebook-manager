@@ -63,6 +63,7 @@ export default function DashboardScreen({ navigation }: Props) {
     const { data: recent } = await supabase
       .from('books')
       .select('*')
+      .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(5);
     setRecentBooks(recent || []);
@@ -101,7 +102,10 @@ export default function DashboardScreen({ navigation }: Props) {
       <TouchableOpacity
         style={viewMode === 'grid' ? styles.gridCard : styles.listCard}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('Library', { collectionFilter: item.name === 'Uncategorised' ? '__uncategorised__' : item.name })}
+        onPress={() => navigation.navigate('Library', {
+          screen: 'LibraryCatalog',
+          params: { collectionFilter: item.name === 'Uncategorised' ? '__uncategorised__' : item.name }
+        })}
       >
         <View style={[viewMode === 'grid' ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}> 
           <DynamicIcon name={item.name === 'Uncategorised' ? 'Layers' : 'Library'} size={viewMode === 'grid' ? 28 : 22} color={color} />

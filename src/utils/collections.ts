@@ -5,6 +5,8 @@ type BookWithTags = {
 
 export function getSortedCollections(books: BookWithTags[]): { name: string; count: number }[] {
   const tagCounts: Record<string, number> = {};
+  const isUncategorised = (name: string) => name === 'Uncategorised' || name === 'Uncategorized';
+
   books.forEach((book) => {
     const tags = book.folder_tags || [];
     if (tags.length === 0) {
@@ -15,7 +17,17 @@ export function getSortedCollections(books: BookWithTags[]): { name: string; cou
       });
     }
   });
+
   return Object.entries(tagCounts)
     .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    .sort((a, b) => {
+      const aPriority = isUncategorised(a.name) ? 0 : 1;
+      const bPriority = isUncategorised(b.name) ? 0 : 1;
+
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
+      }
+
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
 }

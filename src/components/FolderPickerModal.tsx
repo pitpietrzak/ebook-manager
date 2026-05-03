@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { listDriveFolders, createDriveFolder } from '../utils/drive';
-import { getValidGoogleAccessToken } from '../utils/googleAuth';
+import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -28,12 +28,10 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
   const fetchFolders = async () => {
     try {
       setLoading(true);
-      const token = await getValidGoogleAccessToken();
-      
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
       if (!rootId) throw new Error('Shared folder ID is missing in .env');
 
-      const data = await listDriveFolders(token, rootId);
+      const data = await withGoogleAccessTokenRetry((token) => listDriveFolders(token, rootId));
       setFolders(data);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not fetch folders');
@@ -47,11 +45,10 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
     if (!trimmed) return;
     try {
       setCreating(true);
-      const token = await getValidGoogleAccessToken();
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
       if (!rootId) throw new Error('Missing auth or root folder config');
 
-      const newFolder = await createDriveFolder(trimmed, token, rootId);
+      const newFolder = await withGoogleAccessTokenRetry((token) => createDriveFolder(trimmed, token, rootId));
       setNewFolderName('');
       
       onSelectFolder(newFolder.id, newFolder.name);

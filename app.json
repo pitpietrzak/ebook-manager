@@ -1,10 +1,11 @@
 {
   "expo": {
-    "name": "ebook-manager",
+    "name": "Biblioteczka Leniwcow",
     "slug": "ebook-manager",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "scheme": "ebooklibrary",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -13,22 +14,43 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.piotrpietrzak.ebooklibrary",
+      "entitlements": {
+        "aps-environment": "development"
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.piotrpietrzak.ebooklibrary",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 4
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-web-browser",
-      "expo-secure-store"
-    ]
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#531492"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "37e335e2-cc41-4032-820e-90b73462d0b2"
+      }
+    }
   }
 }

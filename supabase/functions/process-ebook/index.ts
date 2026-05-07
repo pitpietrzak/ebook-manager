@@ -1,10 +1,184 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import JSZip from 'https://esm.sh/jszip@3.10.1';
+import { XMLParser } from 'https://esm.sh/fast-xml-parser@4.5.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'to', 'for', 'by',
+  'i', 'ii', 'iii', 'iv', 'v', 'tom', 'vol', 'part', 'czesc', 'cz', 'book',
+  'ebook', 'epub', 'mobi', 'pdf', 'azw3',
+]);
+
+function stripExtension(input: string): string {
+  return input.replace(/\.[a-zA-Z0-9]{2,5}$/u, '');
+}
+
+function normalizeFilenameTitle(input: string): string {
+  return stripExtension(input)
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenize(input: string): string[] {
+  const normalized = input
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return [];
+
+  return normalized
+    .split(' ')
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+}
+
+function tokenOverlapScore(reference: string, candidate: string): number {
+  const referenceTokens = new Set(tokenize(reference));
+  const candidateTokens = new Set(tokenize(candidate));
+
+  if (referenceTokens.size === 0 || candidateTokens.size === 0) return 0;
+
+  let overlap = 0;
+  for (const token of referenceTokens) {
+    if (candidateTokens.has(token)) overlap += 1;
+  }
+
+  return overlap / referenceTokens.size;
+}
+
+function clampConfidence(value: unknown): 'high' | 'medium' | 'low' {
+  if (value === 'high' || value === 'medium' || value === 'low') return value;
+  return 'low';
+}
+
+type DriveFileMeta = {
+  id?: string;
+  name?: string;
+  mimeType?: string;
+  description?: string;
+  createdTime?: string;
+  webViewLink?: string;
+  webContentLink?: string;
+};
+
+type EpubMeta = {
+  title?: string;
+  author?: string;
+  language?: string;
+  description?: string;
+  source: 'epub-opf';
+};
+
+async function fetchDriveFileMeta(driveFileId: string, providerToken: string): Promise<DriveFileMeta | null> {
+  const fields = 'id,name,mimeType,description,createdTime,webViewLink,webContentLink';
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${driveFileId}?fields=${encodeURIComponent(fields)}`,
+    { headers: { Authorization: `Bearer ${providerToken}` } }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.warn('Drive metadata fetch failed:', errorText);
+    return null;
+  }
+
+  return await response.json();
+}
+
+async function fetchDriveFileBytes(driveFileId: string, providerToken: string): Promise<Uint8Array | null> {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${providerToken}` },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.warn('Drive file download failed:', errorText);
+    return null;
+  }
+
+  const buffer = await response.arrayBuffer();
+  return new Uint8Array(buffer);
+}
+
+function firstTextValue(value: any): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstTextValue(item);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (typeof value === 'object') {
+    if (typeof value['#text'] === 'string') return value['#text'].trim() || undefined;
+    if (typeof value['__text'] === 'string') return value['__text'].trim() || undefined;
+  }
+  return undefined;
+}
+
+function resolveOpfPath(containerObj: any): string | undefined {
+  const rootfiles = containerObj?.container?.rootfiles?.rootfile;
+  if (!rootfiles) return undefined;
+
+  const entry = Array.isArray(rootfiles) ? rootfiles[0] : rootfiles;
+  return entry?.['@_full-path'];
+}
+
+async function extractEpubMetadata(fileBytes: Uint8Array): Promise<EpubMeta | null> {
+  const zip = await JSZip.loadAsync(fileBytes);
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    trimValues: true,
+    removeNSPrefix: true,
+  });
+
+  const containerFile = zip.file('META-INF/container.xml');
+  if (!containerFile) return null;
+
+  const containerXml = await containerFile.async('text');
+  const containerObj = parser.parse(containerXml);
+
+  let opfPath = resolveOpfPath(containerObj);
+  if (!opfPath) {
+    const fallbackOpf = Object.keys(zip.files).find((name) => name.toLowerCase().endsWith('.opf'));
+    opfPath = fallbackOpf;
+  }
+  if (!opfPath) return null;
+
+  const opfFile = zip.file(opfPath);
+  if (!opfFile) return null;
+
+  const opfXml = await opfFile.async('text');
+  const opfObj = parser.parse(opfXml);
+  const metadata = opfObj?.package?.metadata;
+  if (!metadata) return null;
+
+  const title = firstTextValue(metadata.title);
+  const author = firstTextValue(metadata.creator);
+  const language = firstTextValue(metadata.language);
+  const description = firstTextValue(metadata.description);
+
+  if (!title && !author && !description) return null;
+
+  return {
+    title,
+    author,
+    language,
+    description,
+    source: 'epub-opf',
+  };
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -12,7 +186,45 @@ serve(async (req) => {
   }
 
   try {
-    const { driveFileId, fileName, folderTags = [], driveUploadedAt = null } = await req.json();
+    const {
+      driveFileId,
+      fileName,
+      folderTags = [],
+      driveUploadedAt = null,
+      providerToken = null,
+    } = await req.json();
+
+    const normalizedFileTitle = normalizeFilenameTitle(fileName);
+    const filenameTokens = tokenize(normalizedFileTitle);
+    const hasStrongDisambiguation =
+      /\bby\b/i.test(fileName) ||
+      /\d{4}/.test(fileName) ||
+      fileName.includes(' - ') ||
+      filenameTokens.length >= 3;
+    const isAmbiguousFilename = !hasStrongDisambiguation;
+
+    let driveMeta: DriveFileMeta | null = null;
+    let epubMeta: EpubMeta | null = null;
+
+    if (providerToken && driveFileId) {
+      driveMeta = await fetchDriveFileMeta(driveFileId, providerToken);
+      const isEpub =
+        driveMeta?.mimeType === 'application/epub+zip' ||
+        fileName.toLowerCase().endsWith('.epub');
+
+      if (isEpub) {
+        try {
+          const fileBytes = await fetchDriveFileBytes(driveFileId, providerToken);
+          if (fileBytes) {
+            epubMeta = await extractEpubMetadata(fileBytes);
+          }
+        } catch (downloadError: any) {
+          console.warn('EPUB extraction skipped:', downloadError?.message || String(downloadError));
+        }
+      }
+    }
+
+    const hasAuthoritativeFileMetadata = Boolean(epubMeta?.title || epubMeta?.author || driveMeta?.description);
 
     const openAiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('EXPO_PUBLIC_OPENAI_API_KEY');
     const supabaseClient = createClient(
@@ -59,6 +271,9 @@ From your knowledge of the resolved book/work, produce:
 - Polish description ("description_pl") — a natural Polish language summary of the same quality as the English one
 - Fanfiction is valid — genre: "Fanfiction - [Fandom]"
 - NEVER substitute a different book. Use "low" confidence if unsure.
+- If filename is ambiguous (very short, no author, no year, no series info), DO NOT guess a famous book. Keep the detected filename title and set confidence to "low".
+- Prefer preserving the exact filename-derived title over speculative canonicalization.
+- If file-level metadata is provided (EPUB OPF / Drive metadata), treat it as authoritative and prioritize it over filename heuristics.
 
 Output a single JSON object:
 {
@@ -77,7 +292,10 @@ Output a single JSON object:
           },
           {
             role: 'user',
-            content: `Filename: "${fileName}"\n\nFirst detect language and resolve the original work, then give full bilingual metadata.`
+            content: `Filename: "${fileName}"\nNormalized title from filename: "${normalizedFileTitle}"\nFilename ambiguous: ${isAmbiguousFilename ? 'yes' : 'no'}\n\nDrive metadata: ${JSON.stringify({
+              mimeType: driveMeta?.mimeType || null,
+              description: driveMeta?.description || null,
+            })}\n\nExtracted EPUB metadata: ${JSON.stringify(epubMeta || null)}\n\nFirst detect language and resolve the original work, then give full bilingual metadata. If ambiguous, avoid speculative matches. If file metadata is available, trust it first.`
           }
         ],
         response_format: { type: 'json_object' },
@@ -92,20 +310,46 @@ Output a single JSON object:
 
     const metadata = JSON.parse(metaData.choices[0].message.content);
 
-    const file_title: string = metadata.file_title || fileName;
-    const title: string = metadata.title || fileName;
-    const title_pl: string = metadata.title_pl || title;
-    const author: string = metadata.author || 'Unknown';
-    const genre: string = metadata.genre || 'Unknown';
-    const description: string = metadata.description || 'No description available.';
-    const description_pl: string = metadata.description_pl || description;
-    const moods: string[] = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
-    const confidence: string = metadata.confidence || 'low';
+    const modelFileTitle = metadata.file_title || normalizedFileTitle || fileName;
+    const modelTitle = metadata.title || modelFileTitle;
+    const modelTitlePl = metadata.title_pl || modelTitle;
+    const modelAuthor = metadata.author || 'Unknown';
+    const modelGenre = metadata.genre || 'Unknown';
+    const modelDescription = metadata.description || epubMeta?.description || 'No description available.';
+    const modelDescriptionPl = metadata.description_pl || modelDescription;
+    const modelMoods: string[] = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
+    const modelConfidence = clampConfidence(metadata.confidence);
     let title_alt: string = '';
     const lubimyczytac_url: string = metadata.lubimyczytac_url || '';
     const goodreads_url: string = metadata.goodreads_url || '';
+    const sourceNotes = [
+      epubMeta ? 'source:epub-opf' : '',
+      driveMeta?.mimeType ? `mime:${driveMeta.mimeType}` : '',
+    ].filter(Boolean).join(', ');
 
-    console.log(`Processed: "${title}" / "${title_pl}" by ${author} [confidence: ${confidence}]`);
+    const combinedModelTitles = `${modelFileTitle} ${modelTitle} ${modelTitlePl}`;
+    const overlapScore = tokenOverlapScore(normalizedFileTitle, combinedModelTitles);
+    const shouldUseFallback = !hasAuthoritativeFileMetadata && isAmbiguousFilename && overlapScore < 0.5;
+
+    const file_title: string = shouldUseFallback ? normalizedFileTitle : modelFileTitle;
+    const title: string = shouldUseFallback ? normalizedFileTitle : modelTitle;
+    const title_pl: string = shouldUseFallback ? normalizedFileTitle : modelTitlePl;
+    const author: string = shouldUseFallback ? 'Unknown' : modelAuthor;
+    const genre: string = shouldUseFallback ? 'Unknown' : modelGenre;
+    const description: string = shouldUseFallback
+      ? 'Metadata could not be confidently inferred from filename alone.'
+      : modelDescription;
+    const description_pl: string = shouldUseFallback
+      ? 'Nie udalo sie wiarygodnie ustalic metadanych na podstawie samej nazwy pliku.'
+      : modelDescriptionPl;
+    const moods: string[] = shouldUseFallback ? [] : modelMoods;
+    const confidence: string = shouldUseFallback ? 'low' : modelConfidence;
+
+    if (shouldUseFallback) {
+      console.log(`Fallback metadata used for ambiguous filename "${fileName}" (overlap: ${overlapScore.toFixed(2)})`);
+    }
+
+    console.log(`Processed: "${title}" / "${title_pl}" by ${author} [confidence: ${confidence}]${sourceNotes ? ` [${sourceNotes}]` : ''}`);
 
     // 3. Embedding — include both language versions so AI search works in EN and PL
     const embeddingText = [

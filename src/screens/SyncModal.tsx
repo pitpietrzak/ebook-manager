@@ -172,14 +172,23 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
       let done = 0;
       for (const book of newBooks) {
         setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${book.fileName}` }));
-        await supabase.functions.invoke('process-ebook', {
-          body: {
-            driveFileId: book.driveFileId,
-            fileName: book.fileName,
-            folderTags: book.folderTags,
-            driveUploadedAt: book.driveUploadedAt || null,
-          }
-        });
+
+        const { error: processError } = await withGoogleAccessTokenRetry((providerToken) =>
+          supabase.functions.invoke('process-ebook', {
+            body: {
+              driveFileId: book.driveFileId,
+              fileName: book.fileName,
+              folderTags: book.folderTags,
+              driveUploadedAt: book.driveUploadedAt || null,
+              providerToken,
+            }
+          })
+        );
+
+        if (processError) {
+          throw new Error(processError.message);
+        }
+
         done++;
       }
 
@@ -213,14 +222,23 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     let done = 0;
     for (const file of selectedFiles) {
       setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${file.name}` }));
-      await supabase.functions.invoke('process-ebook', {
-        body: {
-          driveFileId: file.id,
-          fileName: file.name,
-          folderTags: tags,
-          driveUploadedAt: file.createdTime || null,
-        }
-      });
+
+      const { error: processError } = await withGoogleAccessTokenRetry((providerToken) =>
+        supabase.functions.invoke('process-ebook', {
+          body: {
+            driveFileId: file.id,
+            fileName: file.name,
+            folderTags: tags,
+            driveUploadedAt: file.createdTime || null,
+            providerToken,
+          }
+        })
+      );
+
+      if (processError) {
+        throw new Error(processError.message);
+      }
+
       done++;
     }
     setSyncProgress({ current: done, total: done, status: `Done! Added ${done} books ✅` });

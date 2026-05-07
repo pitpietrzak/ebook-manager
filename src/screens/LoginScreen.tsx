@@ -32,14 +32,25 @@ export default function LoginScreen() {
         throw new Error('EXPO_PUBLIC_GOOGLE_CLIENT_ID must be a Google OAuth Client ID ending with .apps.googleusercontent.com');
       }
 
-      let redirectUri = AuthSession.makeRedirectUri({ path: 'auth' });
-      if (!redirectUri.includes('://')) {
-        const fallbackUri = Linking.createURL('auth');
-        if (!fallbackUri.includes('://')) {
-          throw new Error('Generated redirect URI is invalid.');
-        }
-        redirectUri = fallbackUri;
+      const authSessionUri = AuthSession.makeRedirectUri({ path: 'auth' });
+      const linkingUri = Linking.createURL('auth');
+      console.log('[Login] authSessionUri:', authSessionUri);
+      console.log('[Login] linkingUri:', linkingUri);
+
+      // Always use the app's custom scheme — never exp:// (Expo Go)
+      // exp:// cannot handle deep link callbacks on device
+      const APP_SCHEME = 'ebooklibrary';
+      let redirectUri: string;
+      if (authSessionUri.startsWith(`${APP_SCHEME}://`)) {
+        redirectUri = authSessionUri;
+      } else if (linkingUri.startsWith(`${APP_SCHEME}://`)) {
+        redirectUri = linkingUri;
+      } else {
+        // Fallback: construct directly from scheme
+        redirectUri = `${APP_SCHEME}://auth`;
+        console.warn('[Login] Neither URI uses app scheme, falling back to:', redirectUri);
       }
+      console.log('[Login] Using redirectUri:', redirectUri);
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -88,6 +99,13 @@ export default function LoginScreen() {
             const provider_token = params.get('provider_token');
             const provider_refresh_token = params.get('provider_refresh_token');
             const expires_in = Number(params.get('expires_in') || '3300');
+
+            if (provider_token && !provider_refresh_token) {
+              Alert.alert(
+                'Google OAuth setup issue',
+                'Login succeeded, but Google refresh token was not returned. In Supabase Auth > Providers > Google, ensure offline access is enabled and re-consent with prompt=consent.'
+              );
+            }
             
             if (provider_token) {
               await saveGoogleAuth(provider_token, expires_in, provider_refresh_token);

@@ -112,6 +112,10 @@ export async function getValidGoogleAccessToken(options?: { forceRefresh?: boole
   const data = await response.json();
 
   if (!response.ok || !data?.access_token) {
+    if (data?.error === 'invalid_client' || data?.error === 'unauthorized_client') {
+      throw new Error('Google OAuth client mismatch. Ensure EXPO_PUBLIC_GOOGLE_CLIENT_ID matches the Google client configured in Supabase Auth > Providers > Google.');
+    }
+
     if (data?.error === 'invalid_grant' || data?.error === 'invalid_request') {
       await signOutDueToExpiredGoogleSession();
       throw new Error('Google Drive session expired. Please sign in again.');

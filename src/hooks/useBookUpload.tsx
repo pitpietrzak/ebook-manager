@@ -54,7 +54,10 @@ export function useBookUpload(onSuccess: () => void) {
     try {
       setIsUploading(true);
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
+      let providerTokenForProcessing = '';
+
       const driveData = await withGoogleAccessTokenRetry(async (providerToken) => {
+        providerTokenForProcessing = providerToken;
         let finalFolderId = targetFolderId;
 
         // If we only have a targetFolderName (because of direct contextual upload), resolve the ID
@@ -75,14 +78,17 @@ export function useBookUpload(onSuccess: () => void) {
 
       // 2. Trigger Edge Function to process metadata and save to DB
       const folderTags = targetFolderName ? [targetFolderName] : [];
-      const { error } = await supabase.functions.invoke('process-ebook', {
-        body: {
-          driveFileId: driveData.id,
-          fileName: file.name,
-          folderTags,
-          driveUploadedAt: driveData.createdTime || null,
-        }
-      });
+      const { error } = await withGoogleAccessTokenRetry((providerToken) =>
+        supabase.functions.invoke('process-ebook', {
+          body: {
+            driveFileId: driveData.id,
+            fileName: file.name,
+            folderTags,
+            driveUploadedAt: driveData.createdTime || null,
+            providerToken: providerTokenForProcessing || providerToken,
+          }
+        })
+      );
 
       if (error) throw new Error(error.message);
 

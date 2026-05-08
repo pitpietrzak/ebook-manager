@@ -165,6 +165,19 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     setLoading(false);
   };
 
+  const handleOpenExternalUrl = async (url: string, label: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        Alert.alert('Invalid link', `Could not open ${label} link.`);
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error: any) {
+      Alert.alert('Link error', error?.message || `Could not open ${label} link.`);
+    }
+  };
+
   const handleSendToKindle = async () => {
     if (!profile?.kindle_email) {
       Alert.alert(
@@ -398,7 +411,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             {book.goodreads_url ? (
               <TouchableOpacity 
                 style={[styles.linkPill, { backgroundColor: '#E9E5CE' }]} 
-                onPress={() => Linking.openURL(book.goodreads_url!)}
+                onPress={() => handleOpenExternalUrl(book.goodreads_url!, 'Goodreads')}
               >
                 <ExternalLink size={14} color="#82713D" />
                 <Text style={[styles.linkPillText, { color: '#82713D' }]}>Goodreads</Text>
@@ -408,7 +421,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             {book.lubimyczytac_url ? (
               <TouchableOpacity 
                 style={[styles.linkPill, { backgroundColor: '#F5E8E8' }]} 
-                onPress={() => Linking.openURL(book.lubimyczytac_url!)}
+                onPress={() => handleOpenExternalUrl(book.lubimyczytac_url!, 'LubimyCzytac')}
               >
                 <ExternalLink size={14} color="#D32F2F" />
                 <Text style={[styles.linkPillText, { color: '#D32F2F' }]}>LubimyCzytać</Text>

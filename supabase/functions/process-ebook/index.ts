@@ -60,6 +60,366 @@ function clampConfidence(value: unknown): 'high' | 'medium' | 'low' {
   return 'low';
 }
 
+function sanitizeBookUrl(value: unknown, allowedHost: string): string {
+  if (typeof value !== 'string' || !value.trim()) return '';
+
+  try {
+    const parsed = new URL(value.trim());
+    const host = parsed.hostname.toLowerCase();
+    if (!host.endsWith(allowedHost)) return '';
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function stripDiacritics(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+}
+
+function decodeDuckDuckGoRedirect(href: string): string {
+  try {
+    if (href.startsWith('/l/?')) {
+      const parsed = new URL(`https://duckduckgo.com${href}`);
+      const uddg = parsed.searchParams.get('uddg');
+      return uddg ? decodeURIComponent(uddg) : '';
+    }
+    return href;
+  } catch {
+    return '';
+  }
+}
+
+function extractDomainLinksFromHtml(html: string, allowedHost: string): string[] {
+  const matches = html.matchAll(/href="([^"]+)"/g);
+  const unique = new Set<string>();
+
+  for (const match of matches) {
+    const rawHref = match[1] || '';
+    const decoded = decodeDuckDuckGoRedirect(rawHref);
+    const candidate = decoded || rawHref;
+    const clean = sanitizeBookUrl(candidate, allowedHost);
+    if (clean) unique.add(clean);
+  }
+
+  return Array.from(unique);
+}
+
+function scoreUrlCandidate(url: string, title: string, author: string): number {
+  const needle = `${title} ${author}`;
+  const hay = decodeURIComponent(url)
+    .replace(/^https?:\/\/(www\.)?/i, '')
+    .replace(/[\/_\-]+/g, ' ');
+  return tokenOverlapScore(needle, hay);
+}
+
+function scoreAuthorPresenceInText(text: string, expectedAuthor: string): number {
+  const authorTokens = tokenize(expectedAuthor);
+  if (authorTokens.length === 0) return 0;
+
+  const normalizedText = stripDiacritics(text).toLowerCase();
+  let matched = 0;
+  for (const token of authorTokens) {
+    if (normalizedText.includes(token)) matched += 1;
+  }
+
+  return matched / authorTokens.length;
+}
+
+async function scoreAuthorOnPage(url: string, expectedAuthor: string): Promise<number> {
+  if (!expectedAuthor.trim()) return 0;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'text/html',
+      },
+    });
+
+    if (!response.ok) return 0;
+
+    const html = await response.text();
+    const sample = html.slice(0, 50000).replace(/<[^>]+>/g, ' ');
+    return scoreAuthorPresenceInText(sample, expectedAuthor);
+  } catch {
+    return 0;
+  }
+}
+
+function rankCandidates(urls: string[], title: string, author: string): string {
+  if (urls.length === 0) return '';
+
+  const ranked = urls
+    .map((url) => ({ url, score: scoreUrlCandidate(url, title, author) }))
+    .sort((a, b) => b.score - a.score);
+
+  const top = ranked.slice(0, 3).map((entry) => `${entry.score.toFixed(3)}:${entry.url}`);
+  console.log(`[URL lookup] ranked candidates: ${top.join(' | ')}`);
+
+  if (ranked[0]?.score > 0) return ranked[0].url;
+  return urls[0];
+}
+
+async function rankCandidatesWithAuthorVerification(urls: string[], title: string, author: string): Promise<string> {
+  if (urls.length === 0) return '';
+
+  const baseRanked = urls
+    .map((url) => ({ url, baseScore: scoreUrlCandidate(url, title, author) }))
+    .sort((a, b) => b.baseScore - a.baseScore)
+    .slice(0, 5);
+
+  const scored = [] as Array<{ url: string; score: number; baseScore: number; authorScore: number }>;
+  for (const item of baseRanked) {
+    const authorScore = await scoreAuthorOnPage(item.url, author);
+    const score = item.baseScore + (authorScore * 2);
+    scored.push({ url: item.url, score, baseScore: item.baseScore, authorScore });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored
+    .slice(0, 3)
+    .map((entry) => `${entry.score.toFixed(3)}(base:${entry.baseScore.toFixed(3)},author:${entry.authorScore.toFixed(3)}):${entry.url}`);
+  console.log(`[URL lookup] verified candidates: ${top.join(' | ')}`);
+
+  return scored[0]?.url || urls[0];
+}
+
+function rankCandidatesWithContextScores(
+  candidates: Array<{ url: string; context: string }>,
+  title: string,
+  author: string,
+): string {
+  if (candidates.length === 0) return '';
+
+  const scored = candidates.map(({ url, context }) => {
+    const baseScore = scoreUrlCandidate(url, title, author);
+    const authorScore = scoreAuthorPresenceInText(context, author);
+    const titleScore = scoreAuthorPresenceInText(context, title);
+    const score = baseScore + (authorScore * 2) + titleScore;
+    return { url, score, baseScore, authorScore, titleScore };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored
+    .slice(0, 3)
+    .map((e) => `${e.score.toFixed(3)}(base:${e.baseScore.toFixed(3)},auth:${e.authorScore.toFixed(3)},title:${e.titleScore.toFixed(3)}):${e.url}`);
+  console.log(`[URL lookup] context-ranked candidates: ${top.join(' | ')}`);
+
+  if (scored[0]?.score > 0) return scored[0].url;
+  return candidates[0].url;
+}
+
+function extractUrlsByRegex(html: string, regex: RegExp, allowedHost: string): string[] {
+  const unique = new Set<string>();
+  for (const match of html.matchAll(regex)) {
+    const href = (match[1] || '').replace(/&amp;/g, '&');
+    let absolute = href;
+
+    if (href.startsWith('/')) {
+      absolute = `https://${allowedHost}${href}`;
+    }
+
+    const clean = sanitizeBookUrl(absolute, allowedHost);
+    if (clean) unique.add(clean);
+  }
+  return Array.from(unique);
+}
+
+function extractCandidatesWithContext(
+  html: string,
+  regex: RegExp,
+  allowedHost: string,
+): Array<{ url: string; context: string }> {
+  const results: Array<{ url: string; context: string }> = [];
+  const seen = new Set<string>();
+
+  for (const match of html.matchAll(regex)) {
+    const href = (match[1] || '').replace(/&amp;/g, '&');
+    const absolute = href.startsWith('/') ? `https://${allowedHost}${href}` : href;
+    const clean = sanitizeBookUrl(absolute, allowedHost);
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+
+    // Extract a window of text around this link to check for author name
+    const start = Math.max(0, match.index! - 600);
+    const end = Math.min(html.length, match.index! + 600);
+    const context = html.slice(start, end).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    results.push({ url: clean, context });
+  }
+
+  return results;
+}
+
+async function findBookUrlOnLubimyCzytac(title: string, author: string): Promise<string> {
+  const safeTitle = (title || '').trim();
+  const safeAuthor = (author || '').trim();
+  if (!safeTitle) return '';
+
+  const asciiTitle = stripDiacritics(safeTitle);
+  const asciiAuthor = stripDiacritics(safeAuthor);
+
+  // Queries ordered: title+author first, then author-only (finds books even when title search misses),
+  // then ASCII fallbacks
+  const queries = [
+    `${safeTitle} ${safeAuthor}`.trim(),
+    safeAuthor,
+    safeTitle,
+    `${asciiTitle} ${asciiAuthor}`.trim(),
+    asciiAuthor ? asciiAuthor : '',
+    asciiTitle,
+  ].filter(Boolean);
+
+  // Deduplicate while preserving order
+  const seen = new Set<string>();
+  const uniqueQueries = queries.filter((q) => {
+    if (seen.has(q)) return false;
+    seen.add(q);
+    return true;
+  });
+
+  const allCandidates = new Map<string, string>(); // url → best context
+
+  for (const q of uniqueQueries) {
+    const url = `https://lubimyczytac.pl/szukaj/ksiazki?phrase=${encodeURIComponent(q)}`;
+    console.log(`[URL lookup] lubimyczytac query: ${q}`);
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html' },
+      });
+      console.log(`[URL lookup] lubimyczytac status: ${response.status}`);
+      if (!response.ok) continue;
+
+      const html = await response.text();
+      const candidates = extractCandidatesWithContext(
+        html,
+        /href=["'](\/ksiazka\/[^"']+)["']/g,
+        'lubimyczytac.pl'
+      );
+      console.log(`[URL lookup] lubimyczytac extracted: ${candidates.length}`);
+
+      for (const { url: candidateUrl, context } of candidates) {
+        if (!allCandidates.has(candidateUrl)) {
+          allCandidates.set(candidateUrl, context);
+        }
+      }
+    } catch (error: any) {
+      console.warn('[URL lookup] lubimyczytac failed:', error?.message || String(error));
+    }
+  }
+
+  if (allCandidates.size === 0) return '';
+
+  const merged = Array.from(allCandidates.entries()).map(([u, ctx]) => ({ url: u, context: ctx }));
+  const selected = rankCandidatesWithContextScores(merged, safeTitle, safeAuthor);
+  console.log(`[URL lookup] lubimyczytac selected: ${selected || '(empty)'}`);
+  return selected;
+}
+
+async function findBookUrlOnGoodreads(title: string, author: string): Promise<string> {
+  const safeTitle = (title || '').trim();
+  const safeAuthor = (author || '').trim();
+  if (!safeTitle) return '';
+
+  const asciiTitle = stripDiacritics(safeTitle);
+  const asciiAuthor = stripDiacritics(safeAuthor);
+  const queries = [
+    `${safeTitle} ${safeAuthor}`.trim(),
+    safeTitle,
+    `${asciiTitle} ${asciiAuthor}`.trim(),
+    asciiTitle,
+  ];
+
+  for (const q of queries) {
+    const url = `https://www.goodreads.com/search?q=${encodeURIComponent(q)}`;
+    console.log(`[URL lookup] goodreads direct query: ${q}`);
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'text/html',
+        },
+      });
+      console.log(`[URL lookup] goodreads direct status: ${response.status}`);
+      if (!response.ok) continue;
+
+      const html = await response.text();
+      const urls = extractUrlsByRegex(
+        html,
+        /href=["']((?:https?:\/\/(?:www\.)?goodreads\.com)?\/book\/show\/[^"']+)["']/g,
+        'goodreads.com'
+      );
+      console.log(`[URL lookup] goodreads direct extracted: ${urls.length}`);
+      if (urls.length === 0) continue;
+
+      const selected = await rankCandidatesWithAuthorVerification(urls, safeTitle, safeAuthor);
+      console.log(`[URL lookup] goodreads direct selected: ${selected || '(empty)'}`);
+      if (selected) return selected;
+    } catch (error: any) {
+      console.warn('[URL lookup] goodreads direct failed:', error?.message || String(error));
+    }
+  }
+
+  return '';
+}
+
+async function findBookUrlWithDuckDuckGo(allowedHost: string, title: string, author: string): Promise<string> {
+  const safeTitle = (title || '').trim();
+  const safeAuthor = (author || '').trim();
+  if (!safeTitle) return '';
+
+  const queries = [
+    `site:${allowedHost} "${safeTitle}" "${safeAuthor}"`,
+    `site:${allowedHost} "${safeTitle}"`,
+  ];
+
+  const endpoints = [
+    'https://duckduckgo.com/html/?q=',
+    'https://lite.duckduckgo.com/lite/?q=',
+  ];
+
+  for (const query of queries) {
+    console.log(`[URL lookup] ${allowedHost} query: ${query}`);
+
+    for (const endpoint of endpoints) {
+      try {
+        const response = await fetch(`${endpoint}${encodeURIComponent(query)}`, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': 'text/html',
+          },
+        });
+
+        console.log(`[URL lookup] ${allowedHost} endpoint: ${endpoint} status: ${response.status}`);
+        if (!response.ok) continue;
+
+        const html = await response.text();
+        const links = extractDomainLinksFromHtml(html, allowedHost);
+        console.log(`[URL lookup] ${allowedHost} extracted links: ${links.length}`);
+
+        if (links.length === 0) {
+          console.log(`[URL lookup] ${allowedHost} no links in response snippet: ${html.slice(0, 200).replace(/\s+/g, ' ')}`);
+          continue;
+        }
+
+        const selected = rankCandidates(links, safeTitle, safeAuthor);
+        console.log(`[URL lookup] ${allowedHost} selected candidate: ${selected || '(empty)'}`);
+        if (selected) return selected;
+      } catch (error: any) {
+        console.warn(`[URL lookup] ${allowedHost} endpoint failed: ${endpoint}`, error?.message || String(error));
+      }
+    }
+  }
+
+  console.log(`[URL lookup] ${allowedHost} no candidate found for title="${safeTitle}" author="${safeAuthor}"`);
+  return '';
+}
+
 type DriveFileMeta = {
   id?: string;
   name?: string;
@@ -285,6 +645,8 @@ Output a single JSON object:
   "genre": "Primary genre",
   "description": "3-4 sentence English summary",
   "description_pl": "3-4 sentence Polish summary (natural Polish, not word-for-word translation)",
+  "lubimyczytac_url": "Full https://lubimyczytac.pl/... URL or empty string",
+  "goodreads_url": "Full https://www.goodreads.com/... URL or empty string",
   "moods": ["mood1", "mood2", "mood3"],
   "confidence": "high | medium | low",
   "notes": "Any useful context"
@@ -310,7 +672,7 @@ Output a single JSON object:
 
     const metadata = JSON.parse(metaData.choices[0].message.content);
 
-    const modelFileTitle = metadata.file_title || normalizedFileTitle || fileName;
+    const modelFileTitle = (epubMeta?.title || metadata.file_title || normalizedFileTitle || fileName).trim();
     const modelTitle = metadata.title || modelFileTitle;
     const modelTitlePl = metadata.title_pl || modelTitle;
     const modelAuthor = metadata.author || 'Unknown';
@@ -320,8 +682,29 @@ Output a single JSON object:
     const modelMoods: string[] = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
     const modelConfidence = clampConfidence(metadata.confidence);
     let title_alt: string = '';
-    const lubimyczytac_url: string = metadata.lubimyczytac_url || '';
-    const goodreads_url: string = metadata.goodreads_url || '';
+    let lubimyczytac_url: string = sanitizeBookUrl(metadata.lubimyczytac_url, 'lubimyczytac.pl');
+    let goodreads_url: string = sanitizeBookUrl(metadata.goodreads_url, 'goodreads.com');
+    console.log(`[URL lookup] model lubimyczytac_url: ${metadata.lubimyczytac_url || '(empty)'}`);
+    console.log(`[URL lookup] model goodreads_url: ${metadata.goodreads_url || '(empty)'}`);
+
+    if (!lubimyczytac_url) {
+      lubimyczytac_url = await findBookUrlOnLubimyCzytac(modelTitle, modelAuthor);
+    }
+
+    if (!lubimyczytac_url) {
+      lubimyczytac_url = await findBookUrlWithDuckDuckGo('lubimyczytac.pl', modelTitle, modelAuthor);
+    }
+
+    if (!goodreads_url) {
+      goodreads_url = await findBookUrlOnGoodreads(modelTitle, modelAuthor);
+    }
+
+    if (!goodreads_url) {
+      goodreads_url = await findBookUrlWithDuckDuckGo('goodreads.com', modelTitle, modelAuthor);
+    }
+
+    console.log(`[URL lookup] final lubimyczytac_url: ${lubimyczytac_url || '(empty)'}`);
+    console.log(`[URL lookup] final goodreads_url: ${goodreads_url || '(empty)'}`);
     const sourceNotes = [
       epubMeta ? 'source:epub-opf' : '',
       driveMeta?.mimeType ? `mime:${driveMeta.mimeType}` : '',
@@ -359,6 +742,8 @@ Output a single JSON object:
       `Author: ${author}.`,
       `Genre: ${genre}.`,
       `Description: ${description}`,
+      `LubimyCzytac: ${lubimyczytac_url || 'none'}.`,
+      `Goodreads: ${goodreads_url || 'none'}.`,
       `Moods: ${moods.join(', ')}.`,
     ].join(' ');
 
@@ -399,6 +784,8 @@ Output a single JSON object:
         genre,
         description,
         description_pl,
+        lubimyczytac_url,
+        goodreads_url,
         moods,
         folder_tags: folderTags,
         drive_file_id: driveFileId,

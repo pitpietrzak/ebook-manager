@@ -12,6 +12,8 @@ create table public.books (
   author text,
   genre text,
   description text,
+  lubimyczytac_url text,
+  goodreads_url text,
   moods text[],          -- an array of moods, e.g. ['sad', 'inspiring']
   folder_tags text[],    -- an array of nested Google Drive parent folders
   drive_file_id text not null unique,  -- Google Drive File ID so we don't duplicate

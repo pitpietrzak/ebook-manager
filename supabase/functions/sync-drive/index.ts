@@ -6,6 +6,24 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+function isSupportedBookFile(item: { mimeType?: string; name?: string }): boolean {
+  const mime = (item.mimeType || '').toLowerCase();
+  const name = (item.name || '').toLowerCase();
+
+  if (mime === 'application/epub+zip') return true;
+  if (mime === 'application/pdf') return true;
+  if (mime === 'application/x-mobipocket-ebook') return true;
+
+  // Some Drive files are returned as application/octet-stream, so use extension fallback.
+  return (
+    name.endsWith('.epub') ||
+    name.endsWith('.pdf') ||
+    name.endsWith('.mobi') ||
+    name.endsWith('.azw') ||
+    name.endsWith('.azw3')
+  );
+}
+
 // Recursive function to fetch files from Google Drive
 async function fetchFolderRecursive(folderId: string, currentTags: string[], providerToken: string, allFiles: any[] = []) {
   const query = `'${folderId}' in parents and trashed = false`;
@@ -25,8 +43,8 @@ async function fetchFolderRecursive(folderId: string, currentTags: string[], pro
   for (const item of items) {
     if (item.mimeType === 'application/vnd.google-apps.folder') {
       // It's a folder, traverse deep
-      await fetchFolderRecursive(item.id, [...currentTags, item.name], providerToken, allFiles);
-    } else if (item.mimeType === 'application/epub+zip' || item.mimeType === 'application/pdf') {
+      await fetchFolderRecursive(item.id, [...currentTags, item.name.trim()], providerToken, allFiles);
+    } else if (isSupportedBookFile(item)) {
       // It's a book
       allFiles.push({
         driveFileId: item.id,

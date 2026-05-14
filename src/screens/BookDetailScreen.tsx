@@ -5,6 +5,7 @@ import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import { getValidGoogleAccessToken, isGoogleAuthError } from '../utils/googleAuth';
+import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
@@ -241,7 +242,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     setSendingEmail(true);
     try {
       const invokeSendToKindle = async (providerToken: string) => {
-        return supabase.functions.invoke('send-to-kindle', {
+        return invokeEdgeFunctionWithRetry<{ success?: boolean; error?: string }>('send-to-kindle', {
           body: {
             bookId,
             email: profile.kindle_email,

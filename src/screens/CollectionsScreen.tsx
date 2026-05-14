@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, StatusBar, SafeAreaView
+  ActivityIndicator, RefreshControl, StatusBar
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getSortedCollections } from '../utils/collections';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp } from '@react-navigation/native';
@@ -13,7 +14,7 @@ import { clearGoogleAuth } from '../utils/googleAuth';
 import SyncModal from './SyncModal';
 import NotificationModal from '../components/NotificationModal';
 import IconPickerModal from '../components/IconPickerModal';
-import { useBookUpload } from '../hooks/useBookUpload';
+import { SUPPORTED_BOOK_EXTENSIONS, useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import DynamicIcon from '../components/DynamicIcon';
@@ -215,8 +216,8 @@ export default function CollectionsScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} translucent={false} />
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <Text 
@@ -251,6 +252,11 @@ export default function CollectionsScreen({ navigation }: Props) {
         <Search size={20} color={colors.textSecondary} style={{ marginRight: 10 }} />
         <Text style={styles.searchText}>Find your favorite stories...</Text>
       </TouchableOpacity>
+
+      <View style={styles.uploadHintCard}>
+        <Text style={styles.uploadHintTitle}>Upload supported formats</Text>
+        <Text style={styles.uploadHintText}>{SUPPORTED_BOOK_EXTENSIONS.map((ext) => ext.toUpperCase()).join(', ')}</Text>
+      </View>
 
       {loading ? (
         <ActivityIndicator size="large" color="#531492" style={{ marginTop: 40 }} />
@@ -393,6 +399,29 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     borderColor: colors.border,
   },
   searchText: { fontSize: 15, color: colors.textSecondary, fontWeight: '500' },
+  uploadHintCard: {
+    marginHorizontal: 20,
+    marginBottom: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+  },
+  uploadHintTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  uploadHintText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
   badge: {
     position: 'absolute', top: 6, right: 6, width: 8, height: 8,
     borderRadius: 4, backgroundColor: colors.accent,

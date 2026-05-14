@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, StatusBar, SafeAreaView, ScrollView, Dimensions
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, StatusBar, ScrollView, Dimensions
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -119,8 +120,8 @@ export default function DashboardScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} translucent={false} />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Dashboard</Text>

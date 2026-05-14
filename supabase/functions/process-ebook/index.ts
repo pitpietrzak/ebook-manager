@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import JSZip from 'https://esm.sh/jszip@3.10.1';
 import { XMLParser } from 'https://esm.sh/fast-xml-parser@4.5.0';
+import * as mobiParser from 'https://esm.sh/@lingo-reader/mobi-parser@0.4.6?bundle';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,6 +14,13 @@ const STOP_WORDS = new Set([
   'i', 'ii', 'iii', 'iv', 'v', 'tom', 'vol', 'part', 'czesc', 'cz', 'book',
   'ebook', 'epub', 'mobi', 'pdf', 'azw3',
 ]);
+
+const LOW_QUALITY_BOOK_TERMS = [
+  'summary', 'study guide', 'analysis', 'workbook', 'companion', 'sparknotes',
+  'cliffsnotes', 'litchart', 'bookrags', 'supersummary', 'key takeaways',
+  'lesson plan', 'quiz', 'discussion questions', 'notes', 'abstract',
+  'opracowanie', 'streszczenie', 'analiza',
+];
 
 function stripExtension(input: string): string {
   return input.replace(/\.[a-zA-Z0-9]{2,5}$/u, '');
@@ -116,6 +124,46 @@ function scoreUrlCandidate(url: string, title: string, author: string): number {
   return tokenOverlapScore(needle, hay);
 }
 
+function containsLowQualityBookSignals(text: string): boolean {
+  const normalized = stripDiacritics(text || '').toLowerCase();
+  return LOW_QUALITY_BOOK_TERMS.some((term) => normalized.includes(term));
+}
+
+function qualityPenaltyFromUrl(url: string): number {
+  return containsLowQualityBookSignals(decodeURIComponent(url)) ? 2 : 0;
+}
+
+function normalizeAuthorName(rawAuthor: string): string {
+  const source = (rawAuthor || '').trim();
+  if (!source) return '';
+
+  const candidates = source
+    .split(/[,;|/&]|\band\b|\boraz\b/gi)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.replace(/\([^)]*\)/g, '').trim())
+    .map((part) => part.replace(/\b(uploaded by|uploader|username|user|nick|profil|konto)\b/gi, '').trim())
+    .filter(Boolean)
+    .filter((part) => !/\d/.test(part));
+
+  const best = candidates.find((part) => {
+    const tokens = tokenize(part);
+    return tokens.length >= 1 && tokens.length <= 4;
+  });
+
+  return best || source;
+}
+
+function resolveBestAuthor(epubAuthor: string | undefined, modelAuthor: string | undefined): string {
+  const epub = normalizeAuthorName(epubAuthor || '');
+  if (epub) return epub;
+
+  const model = normalizeAuthorName(modelAuthor || '');
+  if (model) return model;
+
+  return 'Unknown';
+}
+
 function scoreAuthorPresenceInText(text: string, expectedAuthor: string): number {
   const authorTokens = tokenize(expectedAuthor);
   if (authorTokens.length === 0) return 0;
@@ -127,6 +175,19 @@ function scoreAuthorPresenceInText(text: string, expectedAuthor: string): number
   }
 
   return matched / authorTokens.length;
+}
+
+function scoreTitlePresenceInText(text: string, expectedTitle: string): number {
+  const titleTokens = tokenize(expectedTitle);
+  if (titleTokens.length === 0) return 0;
+
+  const normalizedText = stripDiacritics(text).toLowerCase();
+  let matched = 0;
+  for (const token of titleTokens) {
+    if (normalizedText.includes(token)) matched += 1;
+  }
+
+  return matched / titleTokens.length;
 }
 
 async function scoreAuthorOnPage(url: string, expectedAuthor: string): Promise<number> {
@@ -154,14 +215,21 @@ function rankCandidates(urls: string[], title: string, author: string): string {
   if (urls.length === 0) return '';
 
   const ranked = urls
-    .map((url) => ({ url, score: scoreUrlCandidate(url, title, author) }))
+    .map((url) => {
+      const baseScore = scoreUrlCandidate(url, title, author);
+      const score = baseScore - qualityPenaltyFromUrl(url);
+      return { url, score, baseScore };
+    })
     .sort((a, b) => b.score - a.score);
 
-  const top = ranked.slice(0, 3).map((entry) => `${entry.score.toFixed(3)}:${entry.url}`);
+  const top = ranked
+    .slice(0, 3)
+    .map((entry) => `${entry.score.toFixed(3)}(base:${entry.baseScore.toFixed(3)}):${entry.url}`);
   console.log(`[URL lookup] ranked candidates: ${top.join(' | ')}`);
 
-  if (ranked[0]?.score > 0) return ranked[0].url;
-  return urls[0];
+  if (!ranked[0]) return '';
+  if (ranked[0].score >= 0.8) return ranked[0].url;
+  return '';
 }
 
 async function rankCandidatesWithAuthorVerification(urls: string[], title: string, author: string): Promise<string> {
@@ -172,20 +240,57 @@ async function rankCandidatesWithAuthorVerification(urls: string[], title: strin
     .sort((a, b) => b.baseScore - a.baseScore)
     .slice(0, 5);
 
-  const scored = [] as Array<{ url: string; score: number; baseScore: number; authorScore: number }>;
+  const scored = [] as Array<{
+    url: string;
+    score: number;
+    baseScore: number;
+    authorScore: number;
+    titleScore: number;
+    qualityPenalty: number;
+  }>;
   for (const item of baseRanked) {
-    const authorScore = await scoreAuthorOnPage(item.url, author);
-    const score = item.baseScore + (authorScore * 2);
-    scored.push({ url: item.url, score, baseScore: item.baseScore, authorScore });
+    let authorScore = 0;
+    let titleScore = 0;
+    let qualityPenalty = qualityPenaltyFromUrl(item.url);
+
+    try {
+      const response = await fetch(item.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'text/html',
+        },
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        const sample = html.slice(0, 60000).replace(/<[^>]+>/g, ' ');
+        authorScore = scoreAuthorPresenceInText(sample, author);
+        titleScore = scoreTitlePresenceInText(sample, title);
+        if (containsLowQualityBookSignals(sample.slice(0, 12000))) {
+          qualityPenalty += 2;
+        }
+      }
+    } catch {
+      // keep scores at 0 if fetch fails
+    }
+
+    const score = item.baseScore + (authorScore * 2) + titleScore - qualityPenalty;
+    scored.push({ url: item.url, score, baseScore: item.baseScore, authorScore, titleScore, qualityPenalty });
   }
 
   scored.sort((a, b) => b.score - a.score);
   const top = scored
     .slice(0, 3)
-    .map((entry) => `${entry.score.toFixed(3)}(base:${entry.baseScore.toFixed(3)},author:${entry.authorScore.toFixed(3)}):${entry.url}`);
+    .map((entry) => `${entry.score.toFixed(3)}(base:${entry.baseScore.toFixed(3)},author:${entry.authorScore.toFixed(3)},title:${entry.titleScore.toFixed(3)},penalty:${entry.qualityPenalty.toFixed(1)}):${entry.url}`);
   console.log(`[URL lookup] verified candidates: ${top.join(' | ')}`);
 
-  return scored[0]?.url || urls[0];
+  const best = scored[0];
+  if (!best) return '';
+
+  // Strict precision gate: avoid wrong links if confidence is weak.
+  if (best.score < 1.0) return '';
+  if (author.trim() && best.authorScore < 0.4) return '';
+  return best.url;
 }
 
 function rankCandidatesWithContextScores(
@@ -199,18 +304,22 @@ function rankCandidatesWithContextScores(
     const baseScore = scoreUrlCandidate(url, title, author);
     const authorScore = scoreAuthorPresenceInText(context, author);
     const titleScore = scoreAuthorPresenceInText(context, title);
-    const score = baseScore + (authorScore * 2) + titleScore;
-    return { url, score, baseScore, authorScore, titleScore };
+    const qualityPenalty = qualityPenaltyFromUrl(url) + (containsLowQualityBookSignals(context) ? 2 : 0);
+    const score = baseScore + (authorScore * 2) + titleScore - qualityPenalty;
+    return { url, score, baseScore, authorScore, titleScore, qualityPenalty };
   });
 
   scored.sort((a, b) => b.score - a.score);
   const top = scored
     .slice(0, 3)
-    .map((e) => `${e.score.toFixed(3)}(base:${e.baseScore.toFixed(3)},auth:${e.authorScore.toFixed(3)},title:${e.titleScore.toFixed(3)}):${e.url}`);
+    .map((e) => `${e.score.toFixed(3)}(base:${e.baseScore.toFixed(3)},auth:${e.authorScore.toFixed(3)},title:${e.titleScore.toFixed(3)},penalty:${e.qualityPenalty.toFixed(1)}):${e.url}`);
   console.log(`[URL lookup] context-ranked candidates: ${top.join(' | ')}`);
 
-  if (scored[0]?.score > 0) return scored[0].url;
-  return candidates[0].url;
+  const best = scored[0];
+  if (!best) return '';
+  if (best.score < 1.0) return '';
+  if (author.trim() && best.authorScore < 0.4) return '';
+  return best.url;
 }
 
 function extractUrlsByRegex(html: string, regex: RegExp, allowedHost: string): string[] {
@@ -430,12 +539,12 @@ type DriveFileMeta = {
   webContentLink?: string;
 };
 
-type EpubMeta = {
+type BookMeta = {
   title?: string;
   author?: string;
   language?: string;
   description?: string;
-  source: 'epub-opf';
+  source: 'epub-opf' | 'mobi-metadata' | 'kf8-metadata';
 };
 
 async function fetchDriveFileMeta(driveFileId: string, providerToken: string): Promise<DriveFileMeta | null> {
@@ -494,7 +603,7 @@ function resolveOpfPath(containerObj: any): string | undefined {
   return entry?.['@_full-path'];
 }
 
-async function extractEpubMetadata(fileBytes: Uint8Array): Promise<EpubMeta | null> {
+async function extractEpubMetadata(fileBytes: Uint8Array): Promise<BookMeta | null> {
   const zip = await JSZip.loadAsync(fileBytes);
   const parser = new XMLParser({
     ignoreAttributes: false,
@@ -540,6 +649,63 @@ async function extractEpubMetadata(fileBytes: Uint8Array): Promise<EpubMeta | nu
   };
 }
 
+function extractAuthorString(authorValue: unknown): string | undefined {
+  if (typeof authorValue === 'string') return authorValue.trim() || undefined;
+  if (Array.isArray(authorValue)) {
+    const parts = authorValue
+      .map((part) => (typeof part === 'string' ? part.trim() : ''))
+      .filter(Boolean);
+    return parts.join(', ') || undefined;
+  }
+  return undefined;
+}
+
+async function extractMobiMetadata(fileBytes: Uint8Array, fileName: string): Promise<BookMeta | null> {
+  try {
+    const lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('.azw3')) {
+      const kf8 = await mobiParser.initKf8File(fileBytes);
+      const metadata = kf8.getMetadata();
+      const title = metadata.title?.trim();
+      const author = extractAuthorString(metadata.author);
+      const language = metadata.language?.trim();
+      const description = metadata.description?.trim();
+      kf8.destroy();
+
+      if (!title && !author && !description) return null;
+
+      return {
+        title,
+        author,
+        language,
+        description,
+        source: 'kf8-metadata',
+      };
+    }
+
+    const mobi = await mobiParser.initMobiFile(fileBytes);
+    const metadata = mobi.getMetadata();
+    const title = metadata.title?.trim();
+    const author = extractAuthorString(metadata.author);
+    const language = metadata.language?.trim();
+    const description = metadata.description?.trim();
+    mobi.destroy();
+
+    if (!title && !author && !description) return null;
+
+    return {
+      title,
+      author,
+      language,
+      description,
+      source: 'mobi-metadata',
+    };
+  } catch (error: any) {
+    console.warn('MOBI/KF8 extraction skipped:', error?.message || String(error));
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -564,27 +730,36 @@ serve(async (req) => {
     const isAmbiguousFilename = !hasStrongDisambiguation;
 
     let driveMeta: DriveFileMeta | null = null;
-    let epubMeta: EpubMeta | null = null;
+    let fileMeta: BookMeta | null = null;
 
     if (providerToken && driveFileId) {
       driveMeta = await fetchDriveFileMeta(driveFileId, providerToken);
       const isEpub =
         driveMeta?.mimeType === 'application/epub+zip' ||
         fileName.toLowerCase().endsWith('.epub');
+      const isMobi =
+        driveMeta?.mimeType === 'application/x-mobipocket-ebook' ||
+        fileName.toLowerCase().endsWith('.mobi');
+      const isKf8 =
+        fileName.toLowerCase().endsWith('.azw3');
 
-      if (isEpub) {
+      if (isEpub || isMobi || isKf8) {
         try {
           const fileBytes = await fetchDriveFileBytes(driveFileId, providerToken);
           if (fileBytes) {
-            epubMeta = await extractEpubMetadata(fileBytes);
+            if (isEpub) {
+              fileMeta = await extractEpubMetadata(fileBytes);
+            } else {
+              fileMeta = await extractMobiMetadata(fileBytes, fileName);
+            }
           }
         } catch (downloadError: any) {
-          console.warn('EPUB extraction skipped:', downloadError?.message || String(downloadError));
+          console.warn('Book metadata extraction skipped:', downloadError?.message || String(downloadError));
         }
       }
     }
 
-    const hasAuthoritativeFileMetadata = Boolean(epubMeta?.title || epubMeta?.author || driveMeta?.description);
+    const hasAuthoritativeFileMetadata = Boolean(fileMeta?.title || fileMeta?.author || driveMeta?.description);
 
     const openAiKey = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('EXPO_PUBLIC_OPENAI_API_KEY');
     const supabaseClient = createClient(
@@ -622,6 +797,7 @@ STEP 1 — LANGUAGE DETECTION & ORIGINAL TITLE RESOLUTION:
   (b) A Polish original work — keep the Polish title as the primary title.
       Example: "Lalka" → "Lalka" by Bolesław Prus
 - Also extract the author if present in the filename (e.g. "Manacled_SenLinYu" → SenLinYu).
+- Ignore uploader/user nicknames or account names in filenames/metadata (e.g. "VeraVerto", "uploaded by ..."). Use only real author names.
 
 STEP 2 — BILINGUAL METADATA:
 From your knowledge of the resolved book/work, produce:
@@ -634,6 +810,7 @@ From your knowledge of the resolved book/work, produce:
 - If filename is ambiguous (very short, no author, no year, no series info), DO NOT guess a famous book. Keep the detected filename title and set confidence to "low".
 - Prefer preserving the exact filename-derived title over speculative canonicalization.
 - If file-level metadata is provided (EPUB OPF / Drive metadata), treat it as authoritative and prioritize it over filename heuristics.
+- Never return study guides, summaries, analyses, workbooks, or companion notes as the main book.
 
 Output a single JSON object:
 {
@@ -657,7 +834,7 @@ Output a single JSON object:
             content: `Filename: "${fileName}"\nNormalized title from filename: "${normalizedFileTitle}"\nFilename ambiguous: ${isAmbiguousFilename ? 'yes' : 'no'}\n\nDrive metadata: ${JSON.stringify({
               mimeType: driveMeta?.mimeType || null,
               description: driveMeta?.description || null,
-            })}\n\nExtracted EPUB metadata: ${JSON.stringify(epubMeta || null)}\n\nFirst detect language and resolve the original work, then give full bilingual metadata. If ambiguous, avoid speculative matches. If file metadata is available, trust it first.`
+            })}\n\nExtracted file metadata: ${JSON.stringify(fileMeta || null)}\n\nFirst detect language and resolve the original work, then give full bilingual metadata. If ambiguous, avoid speculative matches. If file metadata is available, trust it first.`
           }
         ],
         response_format: { type: 'json_object' },
@@ -672,12 +849,12 @@ Output a single JSON object:
 
     const metadata = JSON.parse(metaData.choices[0].message.content);
 
-    const modelFileTitle = (epubMeta?.title || metadata.file_title || normalizedFileTitle || fileName).trim();
+    const modelFileTitle = (fileMeta?.title || metadata.file_title || normalizedFileTitle || fileName).trim();
     const modelTitle = metadata.title || modelFileTitle;
     const modelTitlePl = metadata.title_pl || modelTitle;
-    const modelAuthor = metadata.author || 'Unknown';
+    const modelAuthor = resolveBestAuthor(fileMeta?.author, metadata.author);
     const modelGenre = metadata.genre || 'Unknown';
-    const modelDescription = metadata.description || epubMeta?.description || 'No description available.';
+    const modelDescription = metadata.description || fileMeta?.description || 'No description available.';
     const modelDescriptionPl = metadata.description_pl || modelDescription;
     const modelMoods: string[] = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
     const modelConfidence = clampConfidence(metadata.confidence);
@@ -706,7 +883,7 @@ Output a single JSON object:
     console.log(`[URL lookup] final lubimyczytac_url: ${lubimyczytac_url || '(empty)'}`);
     console.log(`[URL lookup] final goodreads_url: ${goodreads_url || '(empty)'}`);
     const sourceNotes = [
-      epubMeta ? 'source:epub-opf' : '',
+      fileMeta ? `source:${fileMeta.source}` : '',
       driveMeta?.mimeType ? `mime:${driveMeta.mimeType}` : '',
     ].filter(Boolean).join(', ');
 

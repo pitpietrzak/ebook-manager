@@ -4,6 +4,7 @@ import {
   TextInput, ActivityIndicator, Alert, ScrollView, SafeAreaView
 } from 'react-native';
 import { supabase } from '../utils/supabase';
+import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { 
@@ -27,6 +28,25 @@ type DriveItem = {
 };
 
 type Step = 'mode' | 'browse' | 'grouping' | 'syncing';
+
+function isSupportedBookFile(item: Pick<DriveItem, 'mimeType' | 'name'>): boolean {
+  const mime = (item.mimeType || '').toLowerCase();
+  const name = (item.name || '').toLowerCase();
+
+  if (mime === 'application/epub+zip') return true;
+  if (mime === 'application/pdf') return true;
+  if (mime === 'application/x-mobipocket-ebook') return true;
+
+  // Drive can report generic MIME types (for example application/octet-stream),
+  // so we fallback to extension matching.
+  return (
+    name.endsWith('.epub') ||
+    name.endsWith('.pdf') ||
+    name.endsWith('.mobi') ||
+    name.endsWith('.azw') ||
+    name.endsWith('.azw3')
+  );
+}
 
 export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   const [step, setStep] = useState<Step>('mode');
@@ -81,8 +101,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
         isFolder: f.mimeType === 'application/vnd.google-apps.folder',
       })).filter((f: DriveItem) =>
         f.isFolder ||
-        f.mimeType === 'application/epub+zip' ||
-        f.mimeType === 'application/pdf'
+        isSupportedBookFile(f)
       );
 
       setDriveItems(items);
@@ -142,7 +161,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     setSyncProgress({ current: 0, total: 0, status: 'Scanning Google Drive...' });
     try {
       const { data, error } = await withGoogleAccessTokenRetry((token) =>
-        supabase.functions.invoke('sync-drive', {
+        invokeEdgeFunctionWithRetry('sync-drive', {
           body: { providerToken: token, sharedFolderId },
         })
       );
@@ -174,7 +193,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
         setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${book.fileName}` }));
 
         const { error: processError } = await withGoogleAccessTokenRetry((providerToken) =>
-          supabase.functions.invoke('process-ebook', {
+          invokeEdgeFunctionWithRetry('process-ebook', {
             body: {
               driveFileId: book.driveFileId,
               fileName: book.fileName,
@@ -214,8 +233,8 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   const runSelectedSync = async () => {
     setStep('syncing');
     const tags = groupingMode === 'auto'
-      ? folderStack.slice(1).map(f => f.name)
-      : customCollection ? [customCollection] : [];
+      ? folderStack.slice(1).map(f => f.name.trim())
+      : customCollection ? [customCollection.trim()] : [];
 
     setSyncProgress({ current: 0, total: selectedFiles.length, status: 'Processing selected books...' });
 
@@ -224,7 +243,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
       setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${file.name}` }));
 
       const { error: processError } = await withGoogleAccessTokenRetry((providerToken) =>
-        supabase.functions.invoke('process-ebook', {
+        invokeEdgeFunctionWithRetry('process-ebook', {
           body: {
             driveFileId: file.id,
             fileName: file.name,
@@ -320,7 +339,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
                 <View style={styles.driveItemIconBox}>
                   {item.isFolder ? (
                     <Folder size={20} color={colors.primary} />
-                  ) : item.mimeType.includes('pdf') ? (
+                  ) : item.mimeType.includes('pdf') || item.name.toLowerCase().endsWith('.pdf') ? (
                     <FileText size={20} color="#FF5252" />
                   ) : (
                     <BookOpen size={20} color={colors.accent} />

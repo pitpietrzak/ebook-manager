@@ -3,7 +3,12 @@ import { NavigationContainer, NavigatorScreenParams } from '@react-navigation/na
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Session } from '@supabase/supabase-js';
-import { supabase } from './src/utils/supabase';
+import { Platform, StatusBar } from 'react-native';
+import { getSupabaseConfigError, supabase } from './src/utils/supabase';
+
+if (Platform.OS === 'android') {
+  StatusBar.setTranslucent(false);
+}
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
@@ -43,6 +48,7 @@ import { ProfileProvider } from './src/contexts/ProfileContext';
 import { DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { LayoutDashboard, BookOpen, User as UserIcon } from 'lucide-react-native';
 import { validateGoogleSessionOnAppOpen } from './src/utils/googleAuth';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Additional Screen
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -62,17 +68,20 @@ function LibraryNavigator() {
 
 function TabNavigator() {
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        sceneContainerStyle: { paddingBottom: 0 },
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: 64,
-          paddingBottom: 10,
-          paddingTop: 10,
+          height: 60 + Math.max(insets.bottom, 0),
+          paddingBottom: Math.max(insets.bottom, 12),
+          paddingTop: 6,
         },
+        tabBarItemStyle: { paddingVertical: 2 },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarIcon: ({ color, size }) => {
@@ -93,16 +102,27 @@ function TabNavigator() {
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const { colors, isDark } = useTheme();
+  const supabaseConfigError = getSupabaseConfigError();
 
   useEffect(() => {
+    if (supabaseConfigError) {
+      setSession(null);
+      return;
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
     });
 
-    supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
-  }, []);
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabaseConfigError]);
 
   useEffect(() => {
     if (!session?.user) return;
@@ -147,10 +167,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <ProfileProvider>
-        <AppContent />
-      </ProfileProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <ProfileProvider>
+          <AppContent />
+        </ProfileProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

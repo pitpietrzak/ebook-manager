@@ -3,8 +3,16 @@ import { Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { uploadFileToDrive, getOrCreateFolder } from '../utils/drive';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
-import { supabase } from '../utils/supabase';
+import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import FolderPickerModal from '../components/FolderPickerModal';
+
+export const SUPPORTED_BOOK_EXTENSIONS = ['epub', 'mobi', 'azw3', 'pdf'] as const;
+export const SUPPORTED_BOOK_TYPES = [
+  'application/epub+zip',
+  'application/pdf',
+  'application/x-mobipocket-ebook',
+  'application/vnd.amazon.ebook',
+] as const;
 
 export function useBookUpload(onSuccess: () => void) {
   const [isUploading, setIsUploading] = useState(false);
@@ -14,18 +22,17 @@ export function useBookUpload(onSuccess: () => void) {
   const startUpload = async (defaultCollectionName?: string | null) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/epub+zip', 'application/pdf', 'application/x-mobipocket-ebook', 'application/octet-stream'],
+        type: [...SUPPORTED_BOOK_TYPES],
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
       const file = result.assets[0];
 
       // 1. Validate File Extension
-      const supportedExtensions = ['epub', 'mobi', 'pdf'];
       const fileExt = file.name?.split('.').pop()?.toLowerCase() || '';
       
-      if (!supportedExtensions.includes(fileExt)) {
-        Alert.alert('Unsupported Format', 'Please select an EPUB, MOBI, or PDF file.');
+      if (!SUPPORTED_BOOK_EXTENSIONS.includes(fileExt as any)) {
+        Alert.alert('Unsupported Format', 'Please select an EPUB, MOBI, AZW3, or PDF file.');
         return;
       }
 
@@ -77,9 +84,9 @@ export function useBookUpload(onSuccess: () => void) {
       });
 
       // 2. Trigger Edge Function to process metadata and save to DB
-      const folderTags = targetFolderName ? [targetFolderName] : [];
+      const folderTags = targetFolderName ? [targetFolderName.trim()] : [];
       const { error } = await withGoogleAccessTokenRetry((providerToken) =>
-        supabase.functions.invoke('process-ebook', {
+        invokeEdgeFunctionWithRetry('process-ebook', {
           body: {
             driveFileId: driveData.id,
             fileName: file.name,

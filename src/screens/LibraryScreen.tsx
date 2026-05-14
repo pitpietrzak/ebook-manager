@@ -1,13 +1,15 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet,
-  ActivityIndicator, Alert, RefreshControl, SafeAreaView
+  ActivityIndicator, Alert, RefreshControl
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, TabParamList, LibraryStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
+import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
 import { useBookUpload } from '../hooks/useBookUpload';
@@ -125,7 +127,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
     if (collectionFilter === '__uncategorised__') {
       tryQuery = tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
     } else if (collectionFilter && !isAllView) {
-      tryQuery = tryQuery.contains('folder_tags', [collectionFilter]);
+      const tag = collectionFilter.trim();
+      tryQuery = tryQuery.filter('folder_tags', 'cs', `{"${tag.replace(/"/g, '\\"')}"}`);
     }
 
     const { data, error } = await tryQuery;
@@ -144,7 +147,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
       if (collectionFilter === '__uncategorised__') {
         fallbackQuery = fallbackQuery.or('folder_tags.is.null,folder_tags.eq.{}');
       } else if (collectionFilter && !isAllView) {
-        fallbackQuery = fallbackQuery.contains('folder_tags', [collectionFilter]);
+        const tag = collectionFilter.trim();
+        fallbackQuery = fallbackQuery.filter('folder_tags', 'cs', `{"${tag.replace(/"/g, '\\"')}"}`);
       }
       
       const { data: fallbackData } = await fallbackQuery;
@@ -191,7 +195,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setAiResults(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('ai-search', {
+      const { data, error } = await invokeEdgeFunctionWithRetry('ai-search', {
         body: { query: searchQuery }
       });
 
@@ -307,8 +311,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} translucent={false} />
 
       <View style={styles.topBar}>
         <View style={styles.searchInner}>

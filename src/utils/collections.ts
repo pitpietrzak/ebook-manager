@@ -13,7 +13,8 @@ export function getSortedCollections(books: BookWithTags[]): { name: string; cou
       tagCounts['Uncategorised'] = (tagCounts['Uncategorised'] || 0) + 1;
     } else {
       tags.forEach((tag) => {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+        const normalizedTag = tag.trim();
+        tagCounts[normalizedTag] = (tagCounts[normalizedTag] || 0) + 1;
       });
     }
   });

@@ -190,6 +190,121 @@ function scoreTitlePresenceInText(text: string, expectedTitle: string): number {
   return matched / titleTokens.length;
 }
 
+function isValidIsbn10(isbn: string): boolean {
+  if (!/^\d{9}[\dX]$/i.test(isbn)) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 9; i += 1) {
+    sum += (10 - i) * Number(isbn[i]);
+  }
+
+  const check = isbn[9].toUpperCase() === 'X' ? 10 : Number(isbn[9]);
+  sum += check;
+  return sum % 11 === 0;
+}
+
+function isValidIsbn13(isbn: string): boolean {
+  if (!/^\d{13}$/.test(isbn)) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 12; i += 1) {
+    sum += Number(isbn[i]) * (i % 2 === 0 ? 1 : 3);
+  }
+
+  const check = (10 - (sum % 10)) % 10;
+  return check === Number(isbn[12]);
+}
+
+function normalizeIsbnCandidate(rawValue: string): string | null {
+  const candidate = rawValue.replace(/[^0-9Xx]/g, '').toUpperCase();
+  if (candidate.length === 10 && isValidIsbn10(candidate)) return candidate;
+  if (candidate.length === 13 && isValidIsbn13(candidate)) return candidate;
+  return null;
+}
+
+function collectTextValues(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return value.trim() ? [value.trim()] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectTextValues(item));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).flatMap((item) => collectTextValues(item));
+  }
+
+  return [];
+}
+
+function extractIsbnsFromText(text: string): string[] {
+  if (!text) return [];
+
+  const unique = new Set<string>();
+  const matches = text.matchAll(/(?:ISBN(?:-1[03])?[:\s]*)?((?:97[89][0-9\-\s]{10,20}[0-9])|(?:[0-9][0-9\-\s]{8,18}[0-9Xx]))/gi);
+
+  for (const match of matches) {
+    const normalized = normalizeIsbnCandidate(match[1] || '');
+    if (normalized) unique.add(normalized);
+  }
+
+  return Array.from(unique);
+}
+
+function extractIsbnsFromValues(values: string[]): string[] {
+  const unique = new Set<string>();
+
+  for (const value of values) {
+    for (const isbn of extractIsbnsFromText(value)) {
+      unique.add(isbn);
+    }
+  }
+
+  return Array.from(unique);
+}
+
+type IsbnResolvedMeta = {
+  isbn: string;
+  title?: string;
+  author?: string;
+  description?: string;
+  language?: string;
+};
+
+async function resolveBookByIsbn(isbns: string[]): Promise<IsbnResolvedMeta | null> {
+  for (const isbn of isbns) {
+    try {
+      const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      const volume = data?.items?.[0]?.volumeInfo;
+      if (!volume?.title) continue;
+
+      return {
+        isbn,
+        title: typeof volume.title === 'string' ? volume.title.trim() : undefined,
+        author: Array.isArray(volume.authors)
+          ? volume.authors.filter((item: unknown) => typeof item === 'string' && item.trim()).join(', ')
+          : undefined,
+        description: typeof volume.description === 'string' ? volume.description.trim() : undefined,
+        language: typeof volume.language === 'string' ? volume.language.trim() : undefined,
+      };
+    } catch (error: any) {
+      console.warn(`[ISBN lookup] google books failed for ${isbn}:`, error?.message || String(error));
+    }
+  }
+
+  return null;
+}
+
 async function scoreAuthorOnPage(url: string, expectedAuthor: string): Promise<number> {
   if (!expectedAuthor.trim()) return 0;
 
@@ -208,6 +323,39 @@ async function scoreAuthorOnPage(url: string, expectedAuthor: string): Promise<n
     return scoreAuthorPresenceInText(sample, expectedAuthor);
   } catch {
     return 0;
+  }
+}
+
+async function verifyBookUrl(url: string, allowedHost: string, title: string, author: string): Promise<string> {
+  const clean = sanitizeBookUrl(url, allowedHost);
+  if (!clean || !title.trim()) return '';
+
+  try {
+    const response = await fetch(clean, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'text/html',
+      },
+    });
+
+    if (!response.ok) return '';
+
+    const html = await response.text();
+    const sample = html.slice(0, 60000).replace(/<[^>]+>/g, ' ');
+    const baseScore = scoreUrlCandidate(clean, title, author);
+    const authorScore = scoreAuthorPresenceInText(sample, author);
+    const titleScore = scoreTitlePresenceInText(sample, title);
+    const qualityPenalty = containsLowQualityBookSignals(sample.slice(0, 12000)) ? 2 : 0;
+    const score = baseScore + (authorScore * 2) + titleScore - qualityPenalty;
+
+    console.log(`[URL lookup] verified direct url: ${score.toFixed(3)}(base:${baseScore.toFixed(3)},author:${authorScore.toFixed(3)},title:${titleScore.toFixed(3)},penalty:${qualityPenalty.toFixed(1)}):${clean}`);
+
+    if (score < 1.0) return '';
+    if (author.trim() && authorScore < 0.4) return '';
+    return clean;
+  } catch (error: any) {
+    console.warn(`[URL lookup] direct url verification failed for ${clean}:`, error?.message || String(error));
+    return '';
   }
 }
 
@@ -293,6 +441,61 @@ async function rankCandidatesWithAuthorVerification(urls: string[], title: strin
   return best.url;
 }
 
+async function rankGoodreadsCandidatesForIsbn(urls: string[], author: string): Promise<string> {
+  if (urls.length === 0) return '';
+
+  const candidates = urls.slice(0, 5);
+  const scored = [] as Array<{
+    url: string;
+    score: number;
+    authorScore: number;
+    qualityPenalty: number;
+    positionBonus: number;
+  }>;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const url = candidates[index];
+    let authorScore = 0;
+    let qualityPenalty = qualityPenaltyFromUrl(url);
+    const positionBonus = Math.max(0, 1 - (index * 0.2));
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'text/html',
+        },
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        const sample = html.slice(0, 60000).replace(/<[^>]+>/g, ' ');
+        authorScore = scoreAuthorPresenceInText(sample, author);
+        if (containsLowQualityBookSignals(sample.slice(0, 12000))) {
+          qualityPenalty += 2;
+        }
+      }
+    } catch {
+      // keep current score if fetch fails
+    }
+
+    const score = positionBonus + (authorScore * 2) - qualityPenalty;
+    scored.push({ url, score, authorScore, qualityPenalty, positionBonus });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored
+    .slice(0, 3)
+    .map((entry) => `${entry.score.toFixed(3)}(author:${entry.authorScore.toFixed(3)},position:${entry.positionBonus.toFixed(3)},penalty:${entry.qualityPenalty.toFixed(1)}):${entry.url}`);
+  console.log(`[URL lookup] goodreads isbn-ranked candidates: ${top.join(' | ')}`);
+
+  const best = scored[0];
+  if (!best) return '';
+  if (author.trim() && best.authorScore >= 0.4) return best.url;
+  if (best.qualityPenalty === 0) return best.url;
+  return '';
+}
+
 function rankCandidatesWithContextScores(
   candidates: Array<{ url: string; context: string }>,
   title: string,
@@ -363,10 +566,10 @@ function extractCandidatesWithContext(
   return results;
 }
 
-async function findBookUrlOnLubimyCzytac(title: string, author: string): Promise<string> {
+async function findBookUrlOnLubimyCzytac(title: string, author: string, isbns: string[] = []): Promise<string> {
   const safeTitle = (title || '').trim();
   const safeAuthor = (author || '').trim();
-  if (!safeTitle) return '';
+  if (!safeTitle && isbns.length === 0) return '';
 
   const asciiTitle = stripDiacritics(safeTitle);
   const asciiAuthor = stripDiacritics(safeAuthor);
@@ -374,6 +577,7 @@ async function findBookUrlOnLubimyCzytac(title: string, author: string): Promise
   // Queries ordered: title+author first, then author-only (finds books even when title search misses),
   // then ASCII fallbacks
   const queries = [
+    ...isbns,
     `${safeTitle} ${safeAuthor}`.trim(),
     safeAuthor,
     safeTitle,
@@ -429,21 +633,23 @@ async function findBookUrlOnLubimyCzytac(title: string, author: string): Promise
   return selected;
 }
 
-async function findBookUrlOnGoodreads(title: string, author: string): Promise<string> {
+async function findBookUrlOnGoodreads(title: string, author: string, isbns: string[] = []): Promise<string> {
   const safeTitle = (title || '').trim();
   const safeAuthor = (author || '').trim();
-  if (!safeTitle) return '';
+  if (!safeTitle && isbns.length === 0) return '';
 
   const asciiTitle = stripDiacritics(safeTitle);
   const asciiAuthor = stripDiacritics(safeAuthor);
   const queries = [
-    `${safeTitle} ${safeAuthor}`.trim(),
-    safeTitle,
-    `${asciiTitle} ${asciiAuthor}`.trim(),
-    asciiTitle,
-  ];
+    ...isbns.map((isbn) => ({ value: isbn, kind: 'isbn' as const })),
+    { value: `${safeTitle} ${safeAuthor}`.trim(), kind: 'title' as const },
+    { value: safeTitle, kind: 'title' as const },
+    { value: `${asciiTitle} ${asciiAuthor}`.trim(), kind: 'title' as const },
+    { value: asciiTitle, kind: 'title' as const },
+  ].filter((entry) => entry.value);
 
-  for (const q of queries) {
+  for (const query of queries) {
+    const q = query.value;
     const url = `https://www.goodreads.com/search?q=${encodeURIComponent(q)}`;
     console.log(`[URL lookup] goodreads direct query: ${q}`);
 
@@ -466,7 +672,9 @@ async function findBookUrlOnGoodreads(title: string, author: string): Promise<st
       console.log(`[URL lookup] goodreads direct extracted: ${urls.length}`);
       if (urls.length === 0) continue;
 
-      const selected = await rankCandidatesWithAuthorVerification(urls, safeTitle, safeAuthor);
+      const selected = query.kind === 'isbn'
+        ? await rankGoodreadsCandidatesForIsbn(urls, safeAuthor)
+        : await rankCandidatesWithAuthorVerification(urls, safeTitle, safeAuthor);
       console.log(`[URL lookup] goodreads direct selected: ${selected || '(empty)'}`);
       if (selected) return selected;
     } catch (error: any) {
@@ -544,6 +752,7 @@ type BookMeta = {
   author?: string;
   language?: string;
   description?: string;
+  isbns?: string[];
   source: 'epub-opf' | 'mobi-metadata' | 'kf8-metadata';
 };
 
@@ -637,6 +846,13 @@ async function extractEpubMetadata(fileBytes: Uint8Array): Promise<BookMeta | nu
   const author = firstTextValue(metadata.creator);
   const language = firstTextValue(metadata.language);
   const description = firstTextValue(metadata.description);
+  const identifierValues = collectTextValues(metadata.identifier);
+  const isbnContextValues = [
+    ...identifierValues,
+    ...collectTextValues(metadata.meta).filter((value) => /isbn/i.test(value)),
+    opfXml,
+  ];
+  const isbns = extractIsbnsFromValues(isbnContextValues);
 
   if (!title && !author && !description) return null;
 
@@ -645,6 +861,7 @@ async function extractEpubMetadata(fileBytes: Uint8Array): Promise<BookMeta | nu
     author,
     language,
     description,
+    isbns,
     source: 'epub-opf',
   };
 }
@@ -670,6 +887,7 @@ async function extractMobiMetadata(fileBytes: Uint8Array, fileName: string): Pro
       const author = extractAuthorString(metadata.author);
       const language = metadata.language?.trim();
       const description = metadata.description?.trim();
+      const isbns = extractIsbnsFromValues(collectTextValues(metadata).filter((value) => /isbn/i.test(value) || /97[89]/.test(value)));
       kf8.destroy();
 
       if (!title && !author && !description) return null;
@@ -679,6 +897,7 @@ async function extractMobiMetadata(fileBytes: Uint8Array, fileName: string): Pro
         author,
         language,
         description,
+        isbns,
         source: 'kf8-metadata',
       };
     }
@@ -689,6 +908,7 @@ async function extractMobiMetadata(fileBytes: Uint8Array, fileName: string): Pro
     const author = extractAuthorString(metadata.author);
     const language = metadata.language?.trim();
     const description = metadata.description?.trim();
+    const isbns = extractIsbnsFromValues(collectTextValues(metadata).filter((value) => /isbn/i.test(value) || /97[89]/.test(value)));
     mobi.destroy();
 
     if (!title && !author && !description) return null;
@@ -698,6 +918,7 @@ async function extractMobiMetadata(fileBytes: Uint8Array, fileName: string): Pro
       author,
       language,
       description,
+      isbns,
       source: 'mobi-metadata',
     };
   } catch (error: any) {
@@ -706,7 +927,7 @@ async function extractMobiMetadata(fileBytes: Uint8Array, fileName: string): Pro
   }
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -772,21 +993,90 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) throw new Error('Unauthorized');
 
-    // 2. Single GPT-4o call with two-step reasoning + bilingual output.
-    //    Step 1: detect language, resolve original title
-    //    Step 2: recall metadata and produce BOTH English and Polish versions
-    const metaResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert multilingual librarian. Given an ebook filename, follow these EXACT steps:
+    // 2. Resolve ISBN first (if available) to get canonical title/author
+    const extractedIsbns = fileMeta?.isbns || [];
+    const isbnResolvedMeta = extractedIsbns.length > 0 ? await resolveBookByIsbn(extractedIsbns) : null;
+    console.log(`[ISBN lookup] extracted: ${extractedIsbns.join(', ') || '(none)'}`);
+    console.log(`[ISBN lookup] resolved title: ${isbnResolvedMeta?.title || '(empty)'} author: ${isbnResolvedMeta?.author || '(empty)'}`);
+
+    // Only ISBN resolution is strong enough to assume we already know the original work.
+    // File metadata can still contain a translated/localized edition title.
+    const hasCanonicalIdentity = Boolean(isbnResolvedMeta?.title);
+    const canonicalTitle = isbnResolvedMeta?.title || fileMeta?.title || normalizedFileTitle;
+    const canonicalAuthor = normalizeAuthorName(isbnResolvedMeta?.author || fileMeta?.author || '');
+
+    // 3. Call GPT for enrichment: either to translate a known book, or to identify an unknown one
+    let metadata: any;
+    if (hasCanonicalIdentity) {
+      // Path A: We have a strong identity from ISBN. Resolve the original work
+      // and return both original/English and Polish metadata so downstream URL lookup uses the right title.
+      const metaResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert multilingual librarian. Given a book title and author from authoritative metadata with a verified ISBN, determine the underlying original work and produce bilingual metadata.
+
+TASK:
+- Input may be an original title OR a localized/translated edition title.
+- First determine the underlying work.
+- Return the original or canonical English title in "title" whenever the work is not originally Polish.
+- If the work is originally Polish, keep the Polish original title in "title".
+- Return a proper English description in "description".
+- Return the official Polish title in "title_pl" when one exists; otherwise provide a natural Polish translation.
+- Return a natural Polish description in "description_pl".
+
+RULES:
+- Do not return a literal 1:1 translation when a known official title exists.
+- If the provided title is already a translated/localized edition title, map it back to the original work before writing "title".
+- Do not invent a different book. Lower confidence if unsure.
+
+Output a JSON object:
+{
+  "title": "Original/canonical title of the work in English, or original Polish title for Polish-original works",
+  "title_pl": "Official Polish title if known, else natural Polish translation",
+  "description": "3-4 sentence English summary",
+  "description_pl": "3-4 sentence Polish summary (natural Polish prose)",
+  "genre": "Primary genre",
+  "moods": ["mood1", "mood2", "mood3"],
+  "confidence": "high | medium | low",
+  "notes": "Any useful context"
+}`
+            },
+            {
+              role: 'user',
+              content: `Authoritative title: "${canonicalTitle}"\nAuthoritative author: "${canonicalAuthor}"\nOriginal filename: "${fileName}"\nISBN candidates: ${JSON.stringify(extractedIsbns)}\n\nDetermine the underlying work first. Then return both original/canonical title and Polish title plus both English and Polish descriptions.`
+            }
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      const metaData = await metaResponse.json();
+      if (!metaData.choices?.[0]?.message?.content) {
+        throw new Error(`OpenAI Polish translation call failed: ${JSON.stringify(metaData)}`);
+      }
+      metadata = JSON.parse(metaData.choices[0].message.content);
+    } else {
+      // Path B: Weak or missing identity → ask GPT to identify the book (original two-step logic)
+      const metaResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert multilingual librarian. Given an ebook filename, follow these EXACT steps:
 
 STEP 1 — LANGUAGE DETECTION & ORIGINAL TITLE RESOLUTION:
 - Detect the language of the title in the filename.
@@ -795,96 +1085,63 @@ STEP 1 — LANGUAGE DETECTION & ORIGINAL TITLE RESOLUTION:
       Example: "W kajdanach" → original title is "Manacled" by SenLinYu (Harry Potter fanfiction)
       Example: "Diuna" → original title is "Dune" by Frank Herbert
   (b) A Polish original work — keep the Polish title as the primary title.
-      Example: "Lalka" → "Lalka" by Bolesław Prus
-- Also extract the author if present in the filename (e.g. "Manacled_SenLinYu" → SenLinYu).
-- Ignore uploader/user nicknames or account names in filenames/metadata (e.g. "VeraVerto", "uploaded by ..."). Use only real author names.
+- Also extract the author if present in the filename.
+- Ignore uploader/user nicknames or account names. Use only real author names.
 
 STEP 2 — BILINGUAL METADATA:
-From your knowledge of the resolved book/work, produce:
-- Title detected ("file_title") - title detected from the filename
-- English title ("title") and English description ("description")
-- Polish title ("title_pl") — the official Polish translation title if one exists, or a direct Polish translation if not
-- Polish description ("description_pl") — a natural Polish language summary of the same quality as the English one
-- Fanfiction is valid — genre: "Fanfiction - [Fandom]"
-- NEVER substitute a different book. Use "low" confidence if unsure.
-- If filename is ambiguous (very short, no author, no year, no series info), DO NOT guess a famous book. Keep the detected filename title and set confidence to "low".
-- Prefer preserving the exact filename-derived title over speculative canonicalization.
-- If file-level metadata is provided (EPUB OPF / Drive metadata), treat it as authoritative and prioritize it over filename heuristics.
-- Never return study guides, summaries, analyses, workbooks, or companion notes as the main book.
+From your knowledge of the resolved book/work, produce bilingual metadata.
+- If filename is ambiguous (very short, no author), set confidence to "low" and keep the filename title as-is.
+- Never return study guides, summaries, analyses, or companion notes as the main book.
 
 Output a single JSON object:
 {
-  "file_title": "Title detected from the filename",
-  "detected_language": "Polish | English | other",
   "title": "Original/English title",
-  "title_pl": "Polish translation title (official if it exists)",
+  "title_pl": "Polish translation title or natural Polish translation",
   "author": "Full author name(s)",
   "genre": "Primary genre",
   "description": "3-4 sentence English summary",
-  "description_pl": "3-4 sentence Polish summary (natural Polish, not word-for-word translation)",
-  "lubimyczytac_url": "Full https://lubimyczytac.pl/... URL or empty string",
-  "goodreads_url": "Full https://www.goodreads.com/... URL or empty string",
+  "description_pl": "3-4 sentence Polish summary",
   "moods": ["mood1", "mood2", "mood3"],
   "confidence": "high | medium | low",
   "notes": "Any useful context"
 }`
-          },
-          {
-            role: 'user',
-            content: `Filename: "${fileName}"\nNormalized title from filename: "${normalizedFileTitle}"\nFilename ambiguous: ${isAmbiguousFilename ? 'yes' : 'no'}\n\nDrive metadata: ${JSON.stringify({
-              mimeType: driveMeta?.mimeType || null,
-              description: driveMeta?.description || null,
-            })}\n\nExtracted file metadata: ${JSON.stringify(fileMeta || null)}\n\nFirst detect language and resolve the original work, then give full bilingual metadata. If ambiguous, avoid speculative matches. If file metadata is available, trust it first.`
-          }
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
+            },
+            {
+              role: 'user',
+              content: `Filename: "${fileName}"\nNormalized title from filename: "${normalizedFileTitle}"\nFilename ambiguous: ${isAmbiguousFilename ? 'yes' : 'no'}\n\nDrive metadata: ${JSON.stringify({
+                mimeType: driveMeta?.mimeType || null,
+                description: driveMeta?.description || null,
+              })}\n\nExtracted file metadata: ${JSON.stringify(fileMeta || null)}\n\nDetect language and resolve the original work, then provide bilingual metadata.`
+            }
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
 
-    const metaData = await metaResponse.json();
-
-    if (!metaData.choices?.[0]?.message?.content) {
-      throw new Error(`OpenAI metadata call failed: ${JSON.stringify(metaData)}`);
+      const metaData = await metaResponse.json();
+      if (!metaData.choices?.[0]?.message?.content) {
+        throw new Error(`OpenAI metadata call failed: ${JSON.stringify(metaData)}`);
+      }
+      metadata = JSON.parse(metaData.choices[0].message.content);
     }
 
-    const metadata = JSON.parse(metaData.choices[0].message.content);
-
-    const modelFileTitle = (fileMeta?.title || metadata.file_title || normalizedFileTitle || fileName).trim();
-    const modelTitle = metadata.title || modelFileTitle;
-    const modelTitlePl = metadata.title_pl || modelTitle;
-    const modelAuthor = resolveBestAuthor(fileMeta?.author, metadata.author);
+    const modelFileTitle = (fileMeta?.title || normalizedFileTitle || metadata.title || fileName).trim();
+    const modelTitle = (metadata.title || (hasCanonicalIdentity ? canonicalTitle : modelFileTitle) || modelFileTitle).trim();
+    const modelTitlePl = (metadata.title_pl || modelFileTitle || modelTitle).trim();
+    const modelAuthor = normalizeAuthorName(hasCanonicalIdentity ? (canonicalAuthor || metadata.author || '') : (metadata.author || '')) || 'Unknown';
     const modelGenre = metadata.genre || 'Unknown';
-    const modelDescription = metadata.description || fileMeta?.description || 'No description available.';
+    const modelDescription = metadata.description || fileMeta?.description || isbnResolvedMeta?.description || 'No description available.';
     const modelDescriptionPl = metadata.description_pl || modelDescription;
     const modelMoods: string[] = Array.isArray(metadata.moods) ? metadata.moods.slice(0, 5) : [];
     const modelConfidence = clampConfidence(metadata.confidence);
     let title_alt: string = '';
-    let lubimyczytac_url: string = sanitizeBookUrl(metadata.lubimyczytac_url, 'lubimyczytac.pl');
-    let goodreads_url: string = sanitizeBookUrl(metadata.goodreads_url, 'goodreads.com');
-    console.log(`[URL lookup] model lubimyczytac_url: ${metadata.lubimyczytac_url || '(empty)'}`);
-    console.log(`[URL lookup] model goodreads_url: ${metadata.goodreads_url || '(empty)'}`);
+    let lubimyczytac_url = '';
+    let goodreads_url = '';
 
-    if (!lubimyczytac_url) {
-      lubimyczytac_url = await findBookUrlOnLubimyCzytac(modelTitle, modelAuthor);
-    }
-
-    if (!lubimyczytac_url) {
-      lubimyczytac_url = await findBookUrlWithDuckDuckGo('lubimyczytac.pl', modelTitle, modelAuthor);
-    }
-
-    if (!goodreads_url) {
-      goodreads_url = await findBookUrlOnGoodreads(modelTitle, modelAuthor);
-    }
-
-    if (!goodreads_url) {
-      goodreads_url = await findBookUrlWithDuckDuckGo('goodreads.com', modelTitle, modelAuthor);
-    }
-
-    console.log(`[URL lookup] final lubimyczytac_url: ${lubimyczytac_url || '(empty)'}`);
-    console.log(`[URL lookup] final goodreads_url: ${goodreads_url || '(empty)'}`);
     const sourceNotes = [
       fileMeta ? `source:${fileMeta.source}` : '',
       driveMeta?.mimeType ? `mime:${driveMeta.mimeType}` : '',
+      extractedIsbns.length > 0 ? `isbn:${extractedIsbns[0]}` : '',
     ].filter(Boolean).join(', ');
 
     const combinedModelTitles = `${modelFileTitle} ${modelTitle} ${modelTitlePl}`;
@@ -904,6 +1161,34 @@ Output a single JSON object:
       : modelDescriptionPl;
     const moods: string[] = shouldUseFallback ? [] : modelMoods;
     const confidence: string = shouldUseFallback ? 'low' : modelConfidence;
+    const hasTrustedLookupIdentity = Boolean(
+      extractedIsbns.length > 0 ||
+      isbnResolvedMeta?.title ||
+      (!shouldUseFallback && title.trim() && author.trim() && confidence !== 'low') ||
+      (fileMeta?.title && fileMeta?.author)
+    );
+    const lubimyCzytacSearchTitle = (title_pl || file_title || title).trim();
+    const goodreadsSearchTitle = (title || file_title).trim();
+
+    if (hasTrustedLookupIdentity && !lubimyczytac_url) {
+      lubimyczytac_url = await findBookUrlOnLubimyCzytac(lubimyCzytacSearchTitle, author, extractedIsbns);
+    }
+
+    if (hasTrustedLookupIdentity && !lubimyczytac_url && extractedIsbns.length === 0) {
+      lubimyczytac_url = await findBookUrlWithDuckDuckGo('lubimyczytac.pl', lubimyCzytacSearchTitle, author);
+    }
+
+    if (hasTrustedLookupIdentity && !goodreads_url) {
+      goodreads_url = await findBookUrlOnGoodreads(goodreadsSearchTitle, author, extractedIsbns);
+    }
+
+    if (hasTrustedLookupIdentity && !goodreads_url && extractedIsbns.length === 0) {
+      goodreads_url = await findBookUrlWithDuckDuckGo('goodreads.com', goodreadsSearchTitle, author);
+    }
+
+    console.log(`[URL lookup] trusted identity: ${hasTrustedLookupIdentity ? 'yes' : 'no'}`);
+    console.log(`[URL lookup] final lubimyczytac_url: ${lubimyczytac_url || '(empty)'}`);
+    console.log(`[URL lookup] final goodreads_url: ${goodreads_url || '(empty)'}`);
 
     if (shouldUseFallback) {
       console.log(`Fallback metadata used for ambiguous filename "${fileName}" (overlap: ${overlapScore.toFixed(2)})`);

@@ -33,10 +33,27 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     fetchProfile();
     registerForPushNotificationsAsync();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      fetchProfile();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchProfile = async () => {
     try {
+      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setProfile(null);
@@ -51,10 +68,34 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
-      
-      if (data) {
-        setProfile(data);
-      }
+
+      const fallbackDisplayName =
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        (user.email ? user.email.split('@')[0] : '');
+
+      const nextProfile: Profile = {
+        id: user.id,
+        email: user.email || '',
+        display_name: data?.display_name?.trim() || fallbackDisplayName,
+        avatar_url: data?.avatar_url || user.user_metadata?.avatar_url || user.user_metadata?.picture,
+        is_admin: data?.is_admin,
+        notifications_enabled: data?.notifications_enabled ?? true,
+        kindle_email: data?.kindle_email,
+      };
+
+      await supabase
+        .from('profiles')
+        .upsert({
+          id: nextProfile.id,
+          email: nextProfile.email,
+          display_name: nextProfile.display_name,
+          avatar_url: nextProfile.avatar_url,
+          notifications_enabled: nextProfile.notifications_enabled,
+          kindle_email: nextProfile.kindle_email,
+        });
+
+      setProfile(nextProfile);
     } catch (e) {
       console.error('Error fetching profile:', e);
     } finally {

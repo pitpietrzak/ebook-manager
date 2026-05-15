@@ -131,3 +131,59 @@ export const uploadFileToDrive = async (
     throw err;
   }
 };
+
+export const moveDriveFileToFolder = async (
+  fileId: string,
+  accessToken: string,
+  targetFolderId?: string | null
+) => {
+  try {
+    const fallbackRootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
+    const destinationFolderId = targetFolderId || fallbackRootId;
+
+    if (!destinationFolderId) {
+      throw new Error('Destination folder is missing');
+    }
+
+    const metaResponse = await fetch(
+      `${BASE_URL}/${fileId}?fields=parents&supportsAllDrives=true`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!metaResponse.ok) {
+      const errorText = await metaResponse.text();
+      throw new Error(`Google Drive move precheck failed (${metaResponse.status}): ${errorText}`);
+    }
+
+    const meta = await metaResponse.json();
+    const currentParents: string[] = Array.isArray(meta?.parents) ? meta.parents : [];
+    const removeParents = currentParents.filter((parentId) => parentId !== destinationFolderId).join(',');
+
+    const params = new URLSearchParams();
+    params.set('addParents', destinationFolderId);
+    if (removeParents) params.set('removeParents', removeParents);
+    params.set('fields', 'id,parents');
+    params.set('supportsAllDrives', 'true');
+
+    const moveResponse = await fetch(`${BASE_URL}/${fileId}?${params.toString()}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!moveResponse.ok) {
+      const errorText = await moveResponse.text();
+      throw new Error(`Google Drive move failed (${moveResponse.status}): ${errorText}`);
+    }
+
+    return await moveResponse.json();
+  } catch (err) {
+    console.error('Error moving file in Google Drive:', err);
+    throw err;
+  }
+};

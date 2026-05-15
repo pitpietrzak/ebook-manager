@@ -4,8 +4,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import InputModal from '../components/InputModal';
+import FolderPickerModal from '../components/FolderPickerModal';
 import { supabase } from '../utils/supabase';
 import { getValidGoogleAccessToken, isGoogleAuthError } from '../utils/googleAuth';
+import { moveDriveFileToFolder } from '../utils/drive';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
@@ -30,8 +32,10 @@ type Book = {
   description_pl?: string | null;
   goodreads_url?: string;
   lubimyczytac_url?: string;
+  drive_file_id?: string | null;
   verified?: boolean;
   verified_at?: string | null;
+  folder_tags?: string[];
   moods: string[];
   user_id: string;
   profiles?: { display_name: string } | null;
@@ -53,6 +57,8 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [reportLinkType, setReportLinkType] = useState<'goodreads' | 'lubimyczytac' | null>(null);
   const [reportCurrentUrl, setReportCurrentUrl] = useState<string | null>(null);
   const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [moveFolderVisible, setMoveFolderVisible] = useState(false);
+  const [movingFolder, setMovingFolder] = useState(false);
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -372,6 +378,51 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleMoveToFolder = async (folderId: string | null, folderName?: string) => {
+    if (!book) {
+      setMoveFolderVisible(false);
+      return;
+    }
+
+    try {
+      setMovingFolder(true);
+      const providerToken = await getValidGoogleAccessToken();
+
+      if (book.drive_file_id) {
+        await moveDriveFileToFolder(book.drive_file_id, providerToken, folderId);
+      }
+
+      const nextFolderTags = folderName?.trim() ? [folderName.trim()] : [];
+      const { error } = await supabase
+        .from('books')
+        .update({ folder_tags: nextFolderTags })
+        .eq('id', book.id);
+
+      if (error) throw error;
+
+      setBook((prev) => (prev ? { ...prev, folder_tags: nextFolderTags } : prev));
+      setMoveFolderVisible(false);
+      Alert.alert('Moved', folderName ? `Book moved to ${folderName}.` : 'Book moved to root folder.');
+    } catch (e: any) {
+      const rawMessage = String(e?.message || '');
+      if (rawMessage.includes('appNotAuthorizedToFile')) {
+        Alert.alert(
+          'Move failed',
+          'This Google session was granted limited file access. Log out and sign in again to grant full Drive access, then retry the move.'
+        );
+      } else if (rawMessage.includes('(403)') || rawMessage.toLowerCase().includes('insufficient permissions')) {
+        Alert.alert(
+          'Move failed',
+          'Google Drive denied this move (403). Reconnect Google access and verify this file is inside your configured shared folder.'
+        );
+      } else {
+        Alert.alert('Move failed', rawMessage || 'Could not move this book to the selected folder.');
+      }
+    } finally {
+      setMovingFolder(false);
+    }
+  };
+
   if (loading) {
     return <ActivityIndicator style={{ marginTop: 50 }} size="large" color={colors.primary} />;
   }
@@ -510,6 +561,16 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             </Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={[styles.secondaryButton, movingFolder && { opacity: 0.7 }]}
+            onPress={() => setMoveFolderVisible(true)}
+            disabled={movingFolder}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {movingFolder ? 'Moving...' : 'Move to Folder'}
+            </Text>
+          </TouchableOpacity>
+
           <View style={styles.linkRows}>
             <View style={styles.linkActionRow}>
               <TouchableOpacity
@@ -610,6 +671,15 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         setReportCurrentUrl(null);
       }}
       keyboardType="default"
+    />
+
+    <FolderPickerModal
+      visible={moveFolderVisible}
+      onClose={() => {
+        if (movingFolder) return;
+        setMoveFolderVisible(false);
+      }}
+      onSelectFolder={handleMoveToFolder}
     />
     </>
   );

@@ -61,7 +61,7 @@ export default function LoginScreen() {
             access_type: 'offline', 
             prompt: 'consent',
           },
-          scopes: 'openid profile email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send',
+          scopes: 'openid profile email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.send',
         },
       });
 

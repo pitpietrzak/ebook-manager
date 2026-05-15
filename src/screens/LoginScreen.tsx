@@ -147,7 +147,7 @@ export default function LoginScreen() {
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.title}>Biblioteczka Leniwcow</Text>
+        <Text style={styles.title}>Biblioteczka Leniwców</Text>
         <Text style={styles.subtitle}>Your stories, shared & organized.</Text>
       </View>
 

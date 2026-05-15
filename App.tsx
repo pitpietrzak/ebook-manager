@@ -45,6 +45,7 @@ const LibraryStack = createNativeStackNavigator<LibraryStackParamList>();
 
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { ProfileProvider } from './src/contexts/ProfileContext';
+import { VersionProvider } from './src/contexts/VersionContext';
 import { DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { LayoutDashboard, BookOpen, User as UserIcon } from 'lucide-react-native';
 import { validateGoogleSessionOnAppOpen } from './src/utils/googleAuth';
@@ -169,9 +170,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <ProfileProvider>
-          <AppContent />
-        </ProfileProvider>
+        <VersionProvider>
+          <ProfileProvider>
+            <AppContent />
+          </ProfileProvider>
+        </VersionProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

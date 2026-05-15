@@ -10,7 +10,7 @@ const { height } = Dimensions.get('window');
 
 type Notification = {
   id: string;
-  type: 'new_book' | 'new_rating';
+  type: 'new_book' | 'new_rating' | 'book_verification';
   title: string;
   body: string;
   book_id: string;

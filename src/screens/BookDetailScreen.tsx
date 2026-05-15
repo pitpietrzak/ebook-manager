@@ -12,7 +12,7 @@ import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
 import { 
   Star, User, ChevronLeft, ChevronDown, ChevronUp,
-  ExternalLink, Languages, Mail
+  ExternalLink, Languages, Mail, CheckCircle2
 } from 'lucide-react-native';
 
 type Props = {
@@ -30,6 +30,8 @@ type Book = {
   description_pl?: string | null;
   goodreads_url?: string;
   lubimyczytac_url?: string;
+  verified?: boolean;
+  verified_at?: string | null;
   moods: string[];
   user_id: string;
   profiles?: { display_name: string } | null;
@@ -322,7 +324,27 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       setReportSubmitting(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        Alert.alert('Login required', 'Please log in to report wrong links.');
+        Alert.alert('Login required', 'Please log in to update links.');
+        return;
+      }
+
+      if (profile?.is_admin) {
+        const updates = reportLinkType === 'goodreads'
+          ? { goodreads_url: proposedUrl }
+          : { lubimyczytac_url: proposedUrl };
+
+        const { error } = await supabase
+          .from('books')
+          .update(updates)
+          .eq('id', book.id);
+
+        if (error) throw error;
+
+        await fetchBookDetails();
+        setReportModalVisible(false);
+        setReportLinkType(null);
+        setReportCurrentUrl(null);
+        Alert.alert('Saved', 'Book URL was updated.');
         return;
       }
 
@@ -381,6 +403,12 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         <Text style={styles.author}>by {book.author}</Text>
 
         <View style={styles.metaRow}>
+          {profile?.is_admin && (
+            <View style={[styles.verificationBadge, book.verified ? styles.verificationBadgeVerified : styles.verificationBadgePending]}>
+              <CheckCircle2 size={16} color={book.verified ? '#1B5E20' : '#8D6E00'} />
+            </View>
+          )}
+
           {book.profiles?.display_name && (
             <View style={styles.uploaderRow}>
               <User size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
@@ -507,7 +535,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
                 disabled={reportSubmitting}
               >
                 <Text style={styles.reportLinkBtnText}>
-                  {book.goodreads_url ? 'Report' : 'Suggest'}
+                  {profile?.is_admin ? 'Set URL' : (book.goodreads_url ? 'Report' : 'Suggest')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -536,7 +564,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
                 disabled={reportSubmitting}
               >
                 <Text style={styles.reportLinkBtnText}>
-                  {book.lubimyczytac_url ? 'Report' : 'Suggest'}
+                  {profile?.is_admin ? 'Set URL' : (book.lubimyczytac_url ? 'Report' : 'Suggest')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -548,22 +576,30 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     <InputModal
       visible={reportModalVisible}
       title={
-        reportLinkType === 'goodreads'
-          ? reportCurrentUrl
-            ? 'Report Goodreads Link'
-            : 'Suggest Goodreads Link'
-          : reportCurrentUrl
-            ? 'Report LubimyCzytać Link'
-            : 'Suggest LubimyCzytać Link'
+        profile?.is_admin
+          ? reportLinkType === 'goodreads'
+            ? 'Set Goodreads Link'
+            : 'Set LubimyCzytać Link'
+          : reportLinkType === 'goodreads'
+            ? reportCurrentUrl
+              ? 'Report Goodreads Link'
+              : 'Suggest Goodreads Link'
+            : reportCurrentUrl
+              ? 'Report LubimyCzytać Link'
+              : 'Suggest LubimyCzytać Link'
       }
       message={
-        reportLinkType === 'goodreads'
-          ? reportCurrentUrl
-            ? 'Paste the correct Goodreads URL. Example: https://www.goodreads.com/book/show/...'
-            : 'Goodreads link is missing. Suggest the correct URL. Example: https://www.goodreads.com/book/show/...'
-          : reportCurrentUrl
-            ? 'Paste the correct LubimyCzytać URL. Example: https://lubimyczytac.pl/ksiazka/...'
-            : 'LubimyCzytać link is missing. Suggest the correct URL. Example: https://lubimyczytac.pl/ksiazka/...'
+        profile?.is_admin
+          ? reportLinkType === 'goodreads'
+            ? 'Set the Goodreads URL directly. Example: https://www.goodreads.com/book/show/...'
+            : 'Set the LubimyCzytać URL directly. Example: https://lubimyczytac.pl/ksiazka/...'
+          : reportLinkType === 'goodreads'
+            ? reportCurrentUrl
+              ? 'Paste the correct Goodreads URL. Example: https://www.goodreads.com/book/show/...'
+              : 'Goodreads link is missing. Suggest the correct URL. Example: https://www.goodreads.com/book/show/...'
+            : reportCurrentUrl
+              ? 'Paste the correct LubimyCzytać URL. Example: https://lubimyczytac.pl/ksiazka/...'
+              : 'LubimyCzytać link is missing. Suggest the correct URL. Example: https://lubimyczytac.pl/ksiazka/...'
       }
       placeholder={reportLinkType === 'goodreads' ? 'https://www.goodreads.com/book/show/...' : 'https://lubimyczytac.pl/ksiazka/...'}
       onSave={handleSaveReportedUrl}
@@ -616,7 +652,22 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
     marginBottom: 20,
+  },
+  verificationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 6,
+    borderRadius: 20,
+  },
+  verificationBadgeVerified: {
+    backgroundColor: '#E8F5E9',
+  },
+  verificationBadgePending: {
+    backgroundColor: '#FFF8E1',
   },
   uploaderRow: {
     flexDirection: 'row', alignItems: 'center',

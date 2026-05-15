@@ -226,7 +226,7 @@ export default function CollectionsScreen({ navigation }: Props) {
             adjustsFontSizeToFit={true}
             minimumFontScale={0.7}
           >
-            Biblioteczka Leniwcow
+            Biblioteczka Leniwców
           </Text>
           <Text style={styles.headerSubtitle}>{totalBooks} books in your collection</Text>
         </View>

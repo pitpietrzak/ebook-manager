@@ -10,8 +10,9 @@ import { RootStackParamList, TabParamList } from '../../App';
 import { getSortedCollections } from '../utils/collections';
 import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
+import { useProfile } from '../contexts/ProfileContext';
 import DynamicIcon from '../components/DynamicIcon';
-import { LayoutGrid, List as ListIcon, Star, MessageCircle } from 'lucide-react-native';
+import { LayoutGrid, List as ListIcon, Star, MessageCircle, CheckCircle2 } from 'lucide-react-native';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -29,6 +30,7 @@ type Book = {
   id: string;
   title: string;
   author: string;
+  verified?: boolean;
 };
 
 type Reaction = {
@@ -47,6 +49,7 @@ export default function DashboardScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const { colors, isDark } = useTheme();
+  const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
   const screenWidth = Dimensions.get('window').width;
 
@@ -141,6 +144,11 @@ export default function DashboardScreen({ navigation }: Props) {
               </View>
               <Text style={styles.recentBookTitle} numberOfLines={1}>{book.title}</Text>
               <Text style={styles.recentBookAuthor} numberOfLines={1}>{book.author}</Text>
+              {profile?.is_admin && (
+                <View style={[styles.smallVerifiedPill, book.verified ? styles.smallVerifiedPillOk : styles.smallVerifiedPillPending]}>
+                  <CheckCircle2 size={12} color={book.verified ? '#1B5E20' : '#8D6E00'} />
+                </View>
+              )}
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -246,6 +254,20 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   bookCoverInitial: { fontSize: 22, fontWeight: '900', color: colors.primary, opacity: 0.3 },
   recentBookTitle: { fontSize: 14, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 2 },
   recentBookAuthor: { fontSize: 12, color: colors.textSecondary, textAlign: 'center' },
+  smallVerifiedPill: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    borderRadius: 10,
+  },
+  smallVerifiedPillOk: {
+    backgroundColor: '#E8F5E9',
+  },
+  smallVerifiedPillPending: {
+    backgroundColor: '#FFF8E1',
+  },
   reviewCard: {
     width: 280,
     backgroundColor: colors.card,

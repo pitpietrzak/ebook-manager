@@ -5,8 +5,9 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { supabase } from '../utils/supabase';
 import { clearGoogleAuth } from '../utils/googleAuth';
-import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail } from 'lucide-react-native';
+import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail, Download, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react-native';
 import InputModal from '../components/InputModal';
+import { useVersion } from '../contexts/VersionContext';
 
 type PendingLinkReport = {
   id: string;
@@ -19,13 +20,27 @@ type PendingLinkReport = {
   } | null;
 };
 
+type UnverifiedBook = {
+  id: string;
+  title: string;
+  author?: string | null;
+  created_at: string;
+  goodreads_url?: string | null;
+  lubimyczytac_url?: string | null;
+};
+
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme, viewMode, toggleViewMode } = useTheme();
   const { profile, updateDisplayName, setNotificationsEnabled, updateKindleEmail } = useProfile();
+  const { currentVersion, checkForUpdates } = useVersion();
   const styles = getStyles(colors, isDark);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [pendingReports, setPendingReports] = useState<PendingLinkReport[]>([]);
+  const [unverifiedBooks, setUnverifiedBooks] = useState<UnverifiedBook[]>([]);
+  const [verificationQueueCollapsed, setVerificationQueueCollapsed] = useState(false);
+  const [loadingUnverified, setLoadingUnverified] = useState(false);
+  const [processingBookId, setProcessingBookId] = useState<string | null>(null);
   const [loadingReports, setLoadingReports] = useState(false);
   const [processingReportId, setProcessingReportId] = useState<string | null>(null);
   const [modalConfig, setModalConfig] = useState<{
@@ -37,9 +52,30 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (profile?.is_admin) {
+      fetchUnverifiedBooks();
       fetchPendingReports();
     }
   }, [profile?.is_admin]);
+
+  const fetchUnverifiedBooks = async () => {
+    try {
+      setLoadingUnverified(true);
+      const { data, error } = await supabase
+        .from('books')
+        .select('id, title, author, created_at, goodreads_url, lubimyczytac_url')
+        .eq('verified', false)
+        .order('created_at', { ascending: true })
+        .limit(30);
+
+      if (error) throw error;
+      setUnverifiedBooks((data || []) as UnverifiedBook[]);
+    } catch (e) {
+      console.error('Error fetching unverified books:', e);
+      Alert.alert('Error', 'Could not load unverified books.');
+    } finally {
+      setLoadingUnverified(false);
+    }
+  };
 
   const fetchPendingReports = async () => {
     try {
@@ -58,6 +94,21 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Could not load pending reports.');
     } finally {
       setLoadingReports(false);
+    }
+  };
+
+  const handleVerifyBook = async (bookId: string) => {
+    try {
+      setProcessingBookId(bookId);
+      const { error } = await supabase.rpc('verify_book', {
+        p_book_id: bookId,
+      });
+      if (error) throw error;
+      setUnverifiedBooks((prev) => prev.filter((b) => b.id !== bookId));
+    } catch (e: any) {
+      Alert.alert('Verification failed', e?.message || 'Could not verify this book.');
+    } finally {
+      setProcessingBookId(null);
     }
   };
 
@@ -228,6 +279,92 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>About</Text>
+          
+          <View style={styles.row}>
+            <View style={styles.rowLeft}>
+              <View style={[styles.iconBox, { backgroundColor: colors.primary + '11' }]}>
+                <Download size={20} color={colors.primary} />
+              </View>
+              <Text style={styles.rowLabel}>App Version</Text>
+            </View>
+            <Text style={styles.rowValue}>{currentVersion}</Text>
+          </View>
+
+          <TouchableOpacity style={styles.row} onPress={checkForUpdates}>
+            <View style={styles.rowLeft}>
+              <View style={[styles.iconBox, { backgroundColor: colors.accent + '11' }]}>
+                <Download size={20} color={colors.accent} />
+              </View>
+              <Text style={styles.rowLabel}>Check for Updates</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        
+        {profile?.is_admin && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.adminHeaderRow}
+              onPress={() => setVerificationQueueCollapsed(!verificationQueueCollapsed)}
+            >
+              <Text style={styles.sectionTitle}>Admin Verification Queue</Text>
+              <View style={styles.headerRightContent}>
+                <TouchableOpacity onPress={(e) => {
+                  e.stopPropagation();
+                  fetchUnverifiedBooks();
+                }} style={{ marginRight: 8 }}>
+                  <Text style={styles.refreshReportsText}>Refresh</Text>
+                </TouchableOpacity>
+                {verificationQueueCollapsed ? <ChevronDown size={20} color={colors.primary} /> : <ChevronUp size={20} color={colors.primary} />}
+              </View>
+            </TouchableOpacity>
+
+            {!verificationQueueCollapsed && (
+              <>
+                {loadingUnverified ? (
+                  <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 8 }} />
+                ) : unverifiedBooks.length === 0 ? (
+                  <Text style={styles.emptyReportsText}>All books are verified.</Text>
+                ) : (
+                  unverifiedBooks.map((book) => (
+                    <View key={book.id} style={styles.reportCard}>
+                      <View style={styles.reportTopRow}>
+                        <Shield size={16} color={colors.primary} />
+                        <Text style={styles.reportTypeText}>Pending verification</Text>
+                      </View>
+
+                      <Text style={styles.reportBookTitle}>
+                        {book.title}
+                        {book.author ? ` • ${book.author}` : ''}
+                      </Text>
+
+                      <Text style={styles.reportLinkText}>Goodreads: {book.goodreads_url ? 'present' : 'missing'}</Text>
+                      <Text style={styles.reportLinkText}>LubimyCzytać: {book.lubimyczytac_url ? 'present' : 'missing'}</Text>
+
+                      <View style={styles.reportActionsRow}>
+                        <TouchableOpacity
+                          style={styles.acceptReportBtn}
+                          onPress={() => handleVerifyBook(book.id)}
+                          disabled={processingBookId === book.id}
+                        >
+                          <View style={styles.verifyBtnInner}>
+                            <CheckCircle2 size={14} color="#fff" />
+                            <Text style={styles.acceptReportBtnText}>
+                              {processingBookId === book.id ? 'Verifying...' : 'Mark as verified'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </>
+            )}
+          </View>
+        )}
+
         {profile?.is_admin && (
           <View style={styles.section}>
             <View style={styles.adminHeaderRow}>
@@ -295,7 +432,7 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
 
-        <Text style={styles.footerText}>Biblioteczka Leniwcow v1.1.0</Text>
+        <Text style={styles.footerText}>Biblioteczka Leniwców v{currentVersion}</Text>
       </ScrollView>
 
       {modalConfig && (
@@ -357,6 +494,11 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  headerRightContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   refreshReportsText: {
     color: colors.accent,
     fontSize: 13,
@@ -401,6 +543,12 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 8,
+  },
+  verifyBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   acceptReportBtn: {
     flex: 1,

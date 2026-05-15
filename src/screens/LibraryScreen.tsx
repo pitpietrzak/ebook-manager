@@ -14,11 +14,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as SecureStore from 'expo-secure-store';
 import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
+import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
 import { 
   Search, Plus, Sparkles, Inbox, Book as BookIcon, 
   ChevronRight, Filter, Clock, RefreshCw, Folder as FolderIcon,
-  ChevronLeft
+  ChevronLeft, CheckCircle2
 } from 'lucide-react-native';
 import SyncModal from './SyncModal';
 import DynamicIcon from '../components/DynamicIcon';
@@ -46,6 +47,7 @@ type Book = {
   description_pl?: string | null;
   goodreads_url?: string;
   lubimyczytac_url?: string;
+  verified?: boolean;
   moods: string[];
   folder_tags: string[];
   user_id: string;
@@ -72,6 +74,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<Book[] | null>(null);
   const { colors, isDark, viewMode } = useTheme();
+  const { profile } = useProfile();
 
   const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchBooks());
   const styles = getStyles(colors, isDark);
@@ -285,7 +288,14 @@ export default function LibraryScreen({ navigation, route }: Props) {
           <Text style={styles.bookCoverInitial}>{item.title?.[0]}</Text>
         </View>
         <View style={styles.bookInfo}>
-          <Text style={styles.bookTitle} numberOfLines={1}>{item.title}</Text>
+          <View style={styles.bookTitleRow}>
+            <Text style={styles.bookTitle} numberOfLines={1}>{item.title}</Text>
+            {profile?.is_admin && (
+              <View style={[styles.bookVerifiedPill, item.verified ? styles.bookVerifiedPillOk : styles.bookVerifiedPillPending]}>
+                <CheckCircle2 size={14} color={item.verified ? '#1B5E20' : '#8D6E00'} />
+              </View>
+            )}
+          </View>
           <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
           
           <View style={styles.bookMeta}>
@@ -622,8 +632,27 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontSize: 12, fontWeight: '900', color: colors.primary, opacity: 0.3 
   },
   bookInfo: { flex: 1 },
+  bookTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   bookTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 4 },
   bookAuthor: { fontSize: 14, color: colors.textSecondary, marginBottom: 6 },
+  bookVerifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
+    borderRadius: 10,
+  },
+  bookVerifiedPillOk: {
+    backgroundColor: '#E8F5E9',
+  },
+  bookVerifiedPillPending: {
+    backgroundColor: '#FFF8E1',
+  },
   bookMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '700', backgroundColor: colors.primary + '11', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   uploaderName: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },

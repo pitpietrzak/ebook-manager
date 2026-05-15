@@ -51,6 +51,9 @@ type Book = {
   moods: string[];
   folder_tags: string[];
   user_id: string;
+  series_id?: string | null;
+  series_part?: number | null;
+  series?: { id: string; name: string } | null;
   profiles?: { display_name?: string | null; email?: string } | null;
 };
 
@@ -107,6 +110,68 @@ export default function LibraryScreen({ navigation, route }: Props) {
     }
   };
 
+  const sortBooksForCollectionView = useCallback((books: Book[]): Book[] => {
+    const withIndex = books.map((book, index) => ({ book, index }));
+
+    withIndex.sort((a, b) => {
+      const aSeries = a.book.series_id || '';
+      const bSeries = b.book.series_id || '';
+
+      // If both books are from the same series, order by part number ascending.
+      if (aSeries && bSeries && aSeries === bSeries) {
+        const aPart = a.book.series_part ?? Number.POSITIVE_INFINITY;
+        const bPart = b.book.series_part ?? Number.POSITIVE_INFINITY;
+        if (aPart !== bPart) return aPart - bPart;
+      }
+
+      // Preserve existing query order for unrelated books.
+      return a.index - b.index;
+    });
+
+    return withIndex.map((entry) => entry.book);
+  }, []);
+
+  const enrichBooksWithRelations = useCallback(async (books: any[]): Promise<Book[]> => {
+    const userIds = Array.from(new Set((books || []).map((b: any) => b.user_id).filter(Boolean)));
+    const seriesIds = Array.from(new Set((books || []).map((b: any) => b.series_id).filter(Boolean)));
+
+    let profileById = new Map<string, any>();
+    if (userIds.length > 0) {
+      const { data: profileRows } = await supabase
+        .from('profiles')
+        .select('id, display_name, email')
+        .in('id', userIds);
+
+      profileById = new Map((profileRows || []).map((p: any) => [p.id, p]));
+    }
+
+    let seriesById = new Map<string, any>();
+    if (seriesIds.length > 0) {
+      const { data: seriesRows } = await supabase
+        .from('series')
+        .select('id, name')
+        .in('id', seriesIds);
+
+      seriesById = new Map((seriesRows || []).map((s: any) => [s.id, s]));
+    }
+
+    return (books || []).map((book: any) => ({
+      ...book,
+      profiles: profileById.get(book.user_id)
+        ? {
+            display_name: profileById.get(book.user_id)?.display_name || null,
+            email: profileById.get(book.user_id)?.email || undefined,
+          }
+        : null,
+      series: book.series_id && seriesById.get(book.series_id)
+        ? {
+            id: seriesById.get(book.series_id).id,
+            name: seriesById.get(book.series_id).name,
+          }
+        : null,
+    }));
+  }, []);
+
 // Handle special cases for collectionFilter
   const isAllView = collectionFilter === '__all__';
   const isHomeView = collectionFilter === null;
@@ -137,30 +202,12 @@ export default function LibraryScreen({ navigation, route }: Props) {
     const { data, error } = await tryQuery;
     
     if (!error && data) {
-      const userIds = Array.from(new Set((data || []).map((b: any) => b.user_id).filter(Boolean)));
-      let booksWithProfiles = data;
+      const booksWithProfiles = await enrichBooksWithRelations(data);
 
-      if (userIds.length > 0) {
-        const { data: profileRows } = await supabase
-          .from('profiles')
-          .select('id, display_name, email')
-          .in('id', userIds);
-
-        const profileById = new Map((profileRows || []).map((p: any) => [p.id, p]));
-        booksWithProfiles = data.map((book: any) => ({
-          ...book,
-          profiles: profileById.get(book.user_id)
-            ? {
-                display_name: profileById.get(book.user_id)?.display_name || null,
-                email: profileById.get(book.user_id)?.email || undefined,
-              }
-            : null,
-        }));
-      }
-
-      setAllBooks(booksWithProfiles);
-      setDisplayedBooks(booksWithProfiles);
-      if (isHomeView) fetchCollections(booksWithProfiles);
+      const orderedBooks = !isHomeView ? sortBooksForCollectionView(booksWithProfiles as Book[]) : (booksWithProfiles as Book[]);
+      setAllBooks(orderedBooks);
+      setDisplayedBooks(orderedBooks);
+      if (isHomeView) fetchCollections(orderedBooks);
     } else {
       // Fallback (strict filtering)
       let fallbackQuery = supabase
@@ -177,15 +224,17 @@ export default function LibraryScreen({ navigation, route }: Props) {
       
       const { data: fallbackData } = await fallbackQuery;
       if (fallbackData) {
-        setAllBooks(fallbackData);
-        setDisplayedBooks(fallbackData);
-        if (isHomeView) fetchCollections(fallbackData);
+        const enrichedFallback = await enrichBooksWithRelations(fallbackData);
+        const orderedFallback = !isHomeView ? sortBooksForCollectionView(enrichedFallback as Book[]) : (enrichedFallback as Book[]);
+        setAllBooks(orderedFallback);
+        setDisplayedBooks(orderedFallback);
+        if (isHomeView) fetchCollections(orderedFallback);
       }
     }
     
     setLoading(false);
     setRefreshing(false);
-  }, [collectionFilter, isAllView, isHomeView, fetchCollections]);
+  }, [collectionFilter, isAllView, isHomeView, fetchCollections, enrichBooksWithRelations, sortBooksForCollectionView]);
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
 
@@ -321,6 +370,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
             <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
 
             <View style={styles.bookMeta}>
+              {item.series?.name ? (
+                <View style={styles.seriesPill}>
+                  <Text style={styles.seriesPillText} numberOfLines={1}>
+                    {item.series.name}{item.series_part ? ` #${item.series_part}` : ''}
+                  </Text>
+                </View>
+              ) : null}
               {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
             </View>
 
@@ -681,6 +737,18 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     backgroundColor: '#FFF8E1',
   },
   bookMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  seriesPill: {
+    backgroundColor: isDark ? 'rgba(168, 218, 220, 0.22)' : 'rgba(69, 123, 157, 0.16)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    maxWidth: '70%',
+  },
+  seriesPillText: {
+    fontSize: 12,
+    color: isDark ? '#D7F3F4' : '#1D3557',
+    fontWeight: '700',
+  },
   bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '700', backgroundColor: colors.primary + '11', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   uploaderBottomRight: { fontSize: 11, color: colors.textSecondary, fontWeight: '600', alignSelf: 'flex-end', marginTop: 8 },

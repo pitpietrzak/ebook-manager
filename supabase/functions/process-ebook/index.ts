@@ -1312,6 +1312,8 @@ serve(async (req: Request) => {
       driveUploadedAt = null,
       providerToken = null,
       userId = null,
+      seriesName = null,
+      seriesPart = null,
     } = await req.json();
 
     const normalizedFileTitle = normalizeFilenameTitle(fileName);
@@ -1365,6 +1367,55 @@ serve(async (req: Request) => {
     // 1. Auth check
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) throw new Error('Unauthorized');
+
+    const parsedSeriesPart = (() => {
+      const raw = typeof seriesPart === 'string'
+        ? Number(seriesPart.trim().replace(',', '.'))
+        : seriesPart;
+      if (typeof raw !== 'number' || !Number.isFinite(raw) || raw <= 0) return null;
+      return Math.round(raw * 100) / 100;
+    })();
+
+    let resolvedSeriesId: string | undefined = undefined;
+    if (typeof seriesName === 'string') {
+      const cleanSeriesName = seriesName.trim();
+      if (cleanSeriesName.length > 0) {
+        const { data: existingSeries } = await supabaseClient
+          .from('series')
+          .select('id')
+          .ilike('name', cleanSeriesName)
+          .maybeSingle();
+
+        if (existingSeries?.id) {
+          resolvedSeriesId = existingSeries.id;
+        } else {
+          const { data: insertedSeries, error: seriesInsertError } = await supabaseClient
+            .from('series')
+            .insert({
+              name: cleanSeriesName,
+              created_by: user.id,
+            })
+            .select('id')
+            .single();
+
+          if (seriesInsertError) {
+            const { data: fallbackSeries } = await supabaseClient
+              .from('series')
+              .select('id')
+              .ilike('name', cleanSeriesName)
+              .maybeSingle();
+
+            if (fallbackSeries?.id) {
+              resolvedSeriesId = fallbackSeries.id;
+            } else {
+              throw seriesInsertError;
+            }
+          } else {
+            resolvedSeriesId = insertedSeries.id;
+          }
+        }
+      }
+    }
 
     // 2. Resolve ISBN first (if available) to get canonical title/author
     const extractedIsbns = fileMeta?.isbns || [];
@@ -1660,6 +1711,8 @@ Output a single JSON object:
         drive_file_id: driveFileId,
         isbn: extractedIsbns[0] || null,
         ...(parsedDriveUploadedAt ? { drive_uploaded_at: parsedDriveUploadedAt } : {}),
+        ...(resolvedSeriesId !== undefined ? { series_id: resolvedSeriesId } : {}),
+        ...(resolvedSeriesId !== undefined ? { series_part: parsedSeriesPart } : {}),
         embedding,
         user_id: userId || user.id
       }, { onConflict: 'drive_file_id' })

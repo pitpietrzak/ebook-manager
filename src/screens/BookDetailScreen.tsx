@@ -5,10 +5,12 @@ import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
 import InputModal from '../components/InputModal';
 import FolderPickerModal from '../components/FolderPickerModal';
+import SeriesAssignmentModal from '../components/SeriesAssignmentModal';
 import { supabase } from '../utils/supabase';
 import { getValidGoogleAccessToken, isGoogleAuthError } from '../utils/googleAuth';
 import { moveDriveFileToFolder } from '../utils/drive';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
+import { assignBookSeries } from '../utils/series';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
@@ -38,6 +40,9 @@ type Book = {
   folder_tags?: string[];
   moods: string[];
   user_id: string;
+  series_id?: string | null;
+  series_part?: number | null;
+  series?: { id: string; name: string } | null;
   profiles?: { display_name?: string | null; email?: string } | null;
 };
 
@@ -59,6 +64,8 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [moveFolderVisible, setMoveFolderVisible] = useState(false);
   const [movingFolder, setMovingFolder] = useState(false);
+  const [seriesModalVisible, setSeriesModalVisible] = useState(false);
+  const [savingSeries, setSavingSeries] = useState(false);
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -185,6 +192,19 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         bookWithProfile = {
           ...data,
           profiles: uploaderProfile || null,
+        };
+      }
+
+      if (data.series_id) {
+        const { data: seriesRow } = await supabase
+          .from('series')
+          .select('id, name')
+          .eq('id', data.series_id)
+          .maybeSingle();
+
+        bookWithProfile = {
+          ...bookWithProfile,
+          series: seriesRow || null,
         };
       }
 
@@ -437,6 +457,30 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleSaveSeries = async ({ seriesName, seriesPart }: { seriesName: string; seriesPart: number | null }) => {
+    if (!book) {
+      setSeriesModalVisible(false);
+      return;
+    }
+
+    try {
+      setSavingSeries(true);
+      await assignBookSeries({
+        bookId: book.id,
+        seriesName,
+        seriesPart,
+      });
+
+      await fetchBookDetails();
+      setSeriesModalVisible(false);
+      Alert.alert('Saved', seriesName.trim() ? 'Series assignment updated.' : 'Series cleared from this book.');
+    } catch (e: any) {
+      Alert.alert('Series update failed', e?.message || 'Could not save series changes.');
+    } finally {
+      setSavingSeries(false);
+    }
+  };
+
   if (loading) {
     return <ActivityIndicator style={{ marginTop: 50 }} size="large" color={colors.primary} />;
   }
@@ -473,6 +517,14 @@ export default function BookDetailScreen({ navigation, route }: Props) {
               <CheckCircle2 size={16} color={book.verified ? '#1B5E20' : '#8D6E00'} />
             </View>
           )}
+
+          {book.series?.name ? (
+            <View style={styles.seriesBadge}>
+              <Text style={styles.seriesBadgeText}>
+                {book.series.name}{book.series_part ? ` #${book.series_part}` : ''}
+              </Text>
+            </View>
+          ) : null}
 
           {(() => {
             const displayName = book.profiles?.display_name?.trim() || book.profiles?.email?.split('@')[0] || 'Unknown';
@@ -588,6 +640,18 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             </Text>
           </TouchableOpacity>
 
+          {profile?.is_admin && (
+            <TouchableOpacity
+              style={[styles.secondaryButton, savingSeries && { opacity: 0.7 }]}
+              onPress={() => setSeriesModalVisible(true)}
+              disabled={savingSeries}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {savingSeries ? 'Saving...' : 'Set Series'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.linkRows}>
             <View style={styles.linkActionRow}>
               <TouchableOpacity
@@ -698,6 +762,20 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       }}
       onSelectFolder={handleMoveToFolder}
     />
+
+    <SeriesAssignmentModal
+      visible={seriesModalVisible}
+      title="Set Book Series"
+      initialSeriesName={book?.series?.name || ''}
+      initialSeriesPart={book?.series_part || null}
+      onCancel={() => {
+        if (savingSeries) return;
+        setSeriesModalVisible(false);
+      }}
+      onSave={handleSaveSeries}
+      saveLabel="Save"
+      skipLabel="Clear"
+    />
     </>
   );
 }
@@ -765,6 +843,17 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     fontWeight: '600'
+  },
+  seriesBadge: {
+    backgroundColor: isDark ? 'rgba(168, 218, 220, 0.22)' : 'rgba(69, 123, 157, 0.16)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  seriesBadgeText: {
+    color: isDark ? '#D7F3F4' : '#1D3557',
+    fontSize: 12,
+    fontWeight: '700',
   },
   ratingSection: {
     marginBottom: 24,

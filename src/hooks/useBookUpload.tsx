@@ -5,6 +5,7 @@ import { uploadFileToDrive, getOrCreateFolder } from '../utils/drive';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import FolderPickerModal from '../components/FolderPickerModal';
+import SeriesAssignmentModal from '../components/SeriesAssignmentModal';
 
 export const SUPPORTED_BOOK_EXTENSIONS = ['epub', 'mobi', 'azw3', 'pdf'] as const;
 export const SUPPORTED_BOOK_TYPES = [
@@ -17,7 +18,10 @@ export const SUPPORTED_BOOK_TYPES = [
 export function useBookUpload(onSuccess: () => void) {
   const [isUploading, setIsUploading] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [seriesModalVisible, setSeriesModalVisible] = useState(false);
   const [pendingFile, setPendingFile] = useState<any>(null);
+  const [pendingTargetFolderId, setPendingTargetFolderId] = useState<string | null>(null);
+  const [pendingTargetFolderName, setPendingTargetFolderName] = useState<string | undefined>(undefined);
 
   const startUpload = async (defaultCollectionName?: string | null) => {
     try {
@@ -36,12 +40,14 @@ export function useBookUpload(onSuccess: () => void) {
         return;
       }
 
+      setPendingFile(file);
+
       if (defaultCollectionName && defaultCollectionName !== '__uncategorised__') {
-        // Direct upload to specific context
-        await executeUpload(file, null, defaultCollectionName);
+        setPendingTargetFolderId(null);
+        setPendingTargetFolderName(defaultCollectionName);
+        setSeriesModalVisible(true);
       } else {
-        // Needs folder selection
-        setPendingFile(file);
+        // Needs folder selection first
         setPickerVisible(true);
       }
     } catch (e: any) {
@@ -52,12 +58,43 @@ export function useBookUpload(onSuccess: () => void) {
   const handleFolderSelected = async (targetFolderId: string | null, targetFolderName?: string) => {
     setPickerVisible(false);
     if (!pendingFile) return;
-    const file = pendingFile;
-    setPendingFile(null);
-    await executeUpload(file, targetFolderId, targetFolderName);
+    setPendingTargetFolderId(targetFolderId);
+    setPendingTargetFolderName(targetFolderName);
+    setSeriesModalVisible(true);
   };
 
-  const executeUpload = async (file: any, targetFolderId: string | null, targetFolderName?: string) => {
+  const continueWithSeries = async (seriesName: string, seriesPart: number | null) => {
+    if (!pendingFile) {
+      setSeriesModalVisible(false);
+      return;
+    }
+
+    const file = pendingFile;
+    const targetFolderId = pendingTargetFolderId;
+    const targetFolderName = pendingTargetFolderName;
+
+    setPendingFile(null);
+    setPendingTargetFolderId(null);
+    setPendingTargetFolderName(undefined);
+    setSeriesModalVisible(false);
+
+    await executeUpload(file, targetFolderId, targetFolderName, seriesName, seriesPart);
+  };
+
+  const cancelPendingUpload = () => {
+    setSeriesModalVisible(false);
+    setPendingFile(null);
+    setPendingTargetFolderId(null);
+    setPendingTargetFolderName(undefined);
+  };
+
+  const executeUpload = async (
+    file: any,
+    targetFolderId: string | null,
+    targetFolderName?: string,
+    seriesName?: string,
+    seriesPart?: number | null
+  ) => {
     try {
       setIsUploading(true);
       const rootId = process.env.EXPO_PUBLIC_SHARED_FOLDER_ID;
@@ -93,6 +130,8 @@ export function useBookUpload(onSuccess: () => void) {
             folderTags,
             driveUploadedAt: driveData.createdTime || null,
             providerToken: providerTokenForProcessing || providerToken,
+            ...(seriesName?.trim() ? { seriesName: seriesName.trim() } : {}),
+            ...(seriesName?.trim() ? { seriesPart: seriesPart || null } : {}),
           }
         })
       );
@@ -109,11 +148,21 @@ export function useBookUpload(onSuccess: () => void) {
   };
 
   const uploadNode = (
-    <FolderPickerModal
-      visible={pickerVisible}
-      onClose={() => setPickerVisible(false)}
-      onSelectFolder={handleFolderSelected}
-    />
+    <>
+      <FolderPickerModal
+        visible={pickerVisible}
+        onClose={() => setPickerVisible(false)}
+        onSelectFolder={handleFolderSelected}
+      />
+      <SeriesAssignmentModal
+        visible={seriesModalVisible}
+        title="Assign Series (Optional)"
+        onCancel={cancelPendingUpload}
+        onSave={({ seriesName, seriesPart }) => continueWithSeries(seriesName, seriesPart)}
+        saveLabel="Upload"
+        skipLabel="No Series"
+      />
+    </>
   );
 
   return { startUpload, isUploading, uploadNode };

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
+import InputModal from '../components/InputModal';
 import { supabase } from '../utils/supabase';
 import { getValidGoogleAccessToken, isGoogleAuthError } from '../utils/googleAuth';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
@@ -10,8 +11,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
 import { 
-  Star, User, Calendar, ChevronLeft, ChevronDown, ChevronUp,
-  ExternalLink, Languages, Book, Clock, Mail
+  Star, User, ChevronLeft, ChevronDown, ChevronUp,
+  ExternalLink, Languages, Mail
 } from 'lucide-react-native';
 
 type Props = {
@@ -46,6 +47,10 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [ratingCount, setRatingCount] = useState(0);
   const [savingReview, setSavingReview] = useState(false);
   const [reviewExpanded, setReviewExpanded] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportLinkType, setReportLinkType] = useState<'goodreads' | 'lubimyczytac' | null>(null);
+  const [reportCurrentUrl, setReportCurrentUrl] = useState<string | null>(null);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -277,6 +282,74 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     }
   };
 
+  const openReportModal = (linkType: 'goodreads' | 'lubimyczytac', currentUrl: string | null) => {
+    setReportLinkType(linkType);
+    setReportCurrentUrl(currentUrl);
+    setReportModalVisible(true);
+  };
+
+  const isUrlAllowedForType = (rawUrl: string, linkType: 'goodreads' | 'lubimyczytac') => {
+    try {
+      const parsed = new URL(rawUrl);
+      if (!['https:', 'http:'].includes(parsed.protocol)) return false;
+      const host = parsed.hostname.toLowerCase();
+      if (linkType === 'goodreads') return host.includes('goodreads.com');
+      return host.includes('lubimyczytac.pl');
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSaveReportedUrl = async (value: string) => {
+    if (!book || !reportLinkType) {
+      setReportModalVisible(false);
+      return;
+    }
+
+    const proposedUrl = value.trim();
+    if (!proposedUrl) {
+      Alert.alert('Missing URL', 'Please paste the correct URL first.');
+      return;
+    }
+
+    if (!isUrlAllowedForType(proposedUrl, reportLinkType)) {
+      const hostLabel = reportLinkType === 'goodreads' ? 'goodreads.com' : 'lubimyczytac.pl';
+      Alert.alert('Invalid URL', `Please provide a valid ${hostLabel} link.`);
+      return;
+    }
+
+    try {
+      setReportSubmitting(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Login required', 'Please log in to report wrong links.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('book_link_reports')
+        .insert({
+          book_id: book.id,
+          reporter_user_id: user.id,
+          link_type: reportLinkType,
+          current_url: reportCurrentUrl,
+          proposed_url: proposedUrl,
+          reason: null,
+        });
+
+      if (error) throw error;
+
+      setReportModalVisible(false);
+      setReportLinkType(null);
+      setReportCurrentUrl(null);
+      Alert.alert('Report sent', 'Thanks. Admin will review this correction.');
+    } catch (e: any) {
+      Alert.alert('Failed to submit', e?.message || 'Could not submit your report. Please try again.');
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
   if (loading) {
     return <ActivityIndicator style={{ marginTop: 50 }} size="large" color={colors.primary} />;
   }
@@ -292,6 +365,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const displayDescription = showPolish && book.description_pl ? book.description_pl : book.description;
 
   return (
+    <>
     <ScrollView style={styles.container}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.headerBg} />
       <View style={styles.header}>
@@ -408,30 +482,100 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             </Text>
           </TouchableOpacity>
 
-          <View style={styles.externalLinksRow}>
-            {book.goodreads_url ? (
-              <TouchableOpacity 
-                style={[styles.linkPill, { backgroundColor: '#E9E5CE' }]} 
-                onPress={() => handleOpenExternalUrl(book.goodreads_url!, 'Goodreads')}
+          <View style={styles.linkRows}>
+            <View style={styles.linkActionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.linkPill,
+                  { backgroundColor: '#E9E5CE' },
+                  !book.goodreads_url && styles.linkPillDisabled,
+                ]}
+                onPress={() => {
+                  if (book.goodreads_url) handleOpenExternalUrl(book.goodreads_url, 'Goodreads');
+                }}
+                disabled={!book.goodreads_url}
               >
-                <ExternalLink size={14} color="#82713D" />
-                <Text style={[styles.linkPillText, { color: '#82713D' }]}>Goodreads</Text>
+                <ExternalLink size={16} color="#82713D" />
+                <Text style={[styles.linkPillText, { color: '#82713D' }]}>
+                  {book.goodreads_url ? 'Open Goodreads' : 'Goodreads link missing'}
+                </Text>
               </TouchableOpacity>
-            ) : null}
 
-            {book.lubimyczytac_url ? (
-              <TouchableOpacity 
-                style={[styles.linkPill, { backgroundColor: '#F5E8E8' }]} 
-                onPress={() => handleOpenExternalUrl(book.lubimyczytac_url!, 'LubimyCzytac')}
+              <TouchableOpacity
+                style={styles.reportLinkBtn}
+                onPress={() => openReportModal('goodreads', book.goodreads_url || null)}
+                disabled={reportSubmitting}
               >
-                <ExternalLink size={14} color="#D32F2F" />
-                <Text style={[styles.linkPillText, { color: '#D32F2F' }]}>LubimyCzytać</Text>
+                <Text style={styles.reportLinkBtnText}>
+                  {book.goodreads_url ? 'Report' : 'Suggest'}
+                </Text>
               </TouchableOpacity>
-            ) : null}
+            </View>
+
+            <View style={styles.linkActionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.linkPill,
+                  { backgroundColor: '#F5E8E8' },
+                  !book.lubimyczytac_url && styles.linkPillDisabled,
+                ]}
+                onPress={() => {
+                  if (book.lubimyczytac_url) handleOpenExternalUrl(book.lubimyczytac_url, 'LubimyCzytac');
+                }}
+                disabled={!book.lubimyczytac_url}
+              >
+                <ExternalLink size={16} color="#D32F2F" />
+                <Text style={[styles.linkPillText, { color: '#D32F2F' }]}>
+                  {book.lubimyczytac_url ? 'Open LubimyCzytać' : 'LubimyCzytać link missing'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.reportLinkBtn}
+                onPress={() => openReportModal('lubimyczytac', book.lubimyczytac_url || null)}
+                disabled={reportSubmitting}
+              >
+                <Text style={styles.reportLinkBtnText}>
+                  {book.lubimyczytac_url ? 'Report' : 'Suggest'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
     </ScrollView>
+
+    <InputModal
+      visible={reportModalVisible}
+      title={
+        reportLinkType === 'goodreads'
+          ? reportCurrentUrl
+            ? 'Report Goodreads Link'
+            : 'Suggest Goodreads Link'
+          : reportCurrentUrl
+            ? 'Report LubimyCzytać Link'
+            : 'Suggest LubimyCzytać Link'
+      }
+      message={
+        reportLinkType === 'goodreads'
+          ? reportCurrentUrl
+            ? 'Paste the correct Goodreads URL. Example: https://www.goodreads.com/book/show/...'
+            : 'Goodreads link is missing. Suggest the correct URL. Example: https://www.goodreads.com/book/show/...'
+          : reportCurrentUrl
+            ? 'Paste the correct LubimyCzytać URL. Example: https://lubimyczytac.pl/ksiazka/...'
+            : 'LubimyCzytać link is missing. Suggest the correct URL. Example: https://lubimyczytac.pl/ksiazka/...'
+      }
+      placeholder={reportLinkType === 'goodreads' ? 'https://www.goodreads.com/book/show/...' : 'https://lubimyczytac.pl/ksiazka/...'}
+      onSave={handleSaveReportedUrl}
+      onCancel={() => {
+        if (reportSubmitting) return;
+        setReportModalVisible(false);
+        setReportLinkType(null);
+        setReportCurrentUrl(null);
+      }}
+      keyboardType="default"
+    />
+    </>
   );
 }
 
@@ -603,14 +747,46 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontSize: 17,
     fontWeight: 'bold',
   },
-  externalLinksRow: {
-    flexDirection: 'row', gap: 12, marginTop: 8,
+  linkRows: {
+    marginTop: 8,
+    gap: 10,
+  },
+  linkActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  reportLinkBtn: {
+    minWidth: 94,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportLinkBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   linkPill: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 12, borderRadius: 14, gap: 8,
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    gap: 8,
+    minHeight: 50,
+  },
+  linkPillDisabled: {
+    opacity: 0.6,
   },
   linkPillText: {
-    fontSize: 13, fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '700',
   }
 });

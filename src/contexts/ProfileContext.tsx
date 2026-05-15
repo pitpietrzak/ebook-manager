@@ -10,6 +10,7 @@ type Profile = {
   display_name: string;
   avatar_url?: string;
   email: string;
+  is_admin?: boolean;
   notifications_enabled: boolean;
   kindle_email?: string;
 };
@@ -84,7 +85,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (profile) {
         setProfile({ ...profile, display_name: name });
       } else {
-        setProfile({ id: user.id, display_name: name, email: user.email || '' });
+        setProfile({ id: user.id, display_name: name, email: user.email || '', notifications_enabled: true });
       }
     } catch (e) {
       console.error('Error updating display name:', e);

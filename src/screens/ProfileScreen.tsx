@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
@@ -8,18 +8,99 @@ import { clearGoogleAuth } from '../utils/googleAuth';
 import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail } from 'lucide-react-native';
 import InputModal from '../components/InputModal';
 
+type PendingLinkReport = {
+  id: string;
+  link_type: 'goodreads' | 'lubimyczytac';
+  current_url: string | null;
+  proposed_url: string;
+  books?: {
+    title?: string | null;
+    author?: string | null;
+  } | null;
+};
+
 export default function ProfileScreen() {
   const { colors, isDark, toggleTheme, viewMode, toggleViewMode } = useTheme();
   const { profile, updateDisplayName, setNotificationsEnabled, updateKindleEmail } = useProfile();
   const styles = getStyles(colors, isDark);
 
   const [modalVisible, setModalVisible] = useState(false);
+  const [pendingReports, setPendingReports] = useState<PendingLinkReport[]>([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [processingReportId, setProcessingReportId] = useState<string | null>(null);
   const [modalConfig, setModalConfig] = useState<{
     title: string;
     message: string;
     defaultValue: string;
     type: 'name' | 'kindle';
   } | null>(null);
+
+  useEffect(() => {
+    if (profile?.is_admin) {
+      fetchPendingReports();
+    }
+  }, [profile?.is_admin]);
+
+  const fetchPendingReports = async () => {
+    try {
+      setLoadingReports(true);
+      const { data, error } = await supabase
+        .from('book_link_reports')
+        .select('id, link_type, current_url, proposed_url, books(title, author)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(25);
+
+      if (error) throw error;
+      setPendingReports((data || []) as PendingLinkReport[]);
+    } catch (e) {
+      console.error('Error fetching link reports:', e);
+      Alert.alert('Error', 'Could not load pending reports.');
+    } finally {
+      setLoadingReports(false);
+    }
+  };
+
+  const handleAcceptReport = async (reportId: string) => {
+    try {
+      setProcessingReportId(reportId);
+      const { error } = await supabase.rpc('accept_link_report', {
+        p_report_id: reportId,
+        p_admin_note: null,
+      });
+      if (error) throw error;
+      setPendingReports((prev) => prev.filter((r) => r.id !== reportId));
+    } catch (e: any) {
+      Alert.alert('Accept failed', e?.message || 'Could not accept this report.');
+    } finally {
+      setProcessingReportId(null);
+    }
+  };
+
+  const handleRejectReport = async (reportId: string) => {
+    try {
+      setProcessingReportId(reportId);
+      const { error } = await supabase.rpc('reject_link_report', {
+        p_report_id: reportId,
+        p_admin_note: null,
+      });
+      if (error) throw error;
+      setPendingReports((prev) => prev.filter((r) => r.id !== reportId));
+    } catch (e: any) {
+      Alert.alert('Reject failed', e?.message || 'Could not reject this report.');
+    } finally {
+      setProcessingReportId(null);
+    }
+  };
+
+  const openUrlIfPossible = async (url: string) => {
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      Alert.alert('Invalid URL', 'Could not open this URL.');
+      return;
+    }
+    await Linking.openURL(url);
+  };
 
   const handleLogout = async () => {
     await clearGoogleAuth();
@@ -147,6 +228,68 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
+        {profile?.is_admin && (
+          <View style={styles.section}>
+            <View style={styles.adminHeaderRow}>
+              <Text style={styles.sectionTitle}>Admin Link Reports</Text>
+              <TouchableOpacity onPress={fetchPendingReports}>
+                <Text style={styles.refreshReportsText}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
+
+            {loadingReports ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 8 }} />
+            ) : pendingReports.length === 0 ? (
+              <Text style={styles.emptyReportsText}>No pending reports.</Text>
+            ) : (
+              pendingReports.map((report) => (
+                <View key={report.id} style={styles.reportCard}>
+                  <View style={styles.reportTopRow}>
+                    <Shield size={16} color={colors.primary} />
+                    <Text style={styles.reportTypeText}>
+                      {report.link_type === 'goodreads' ? 'Goodreads' : 'LubimyCzytać'}
+                    </Text>
+                  </View>
+
+                  <Text style={styles.reportBookTitle}>
+                    {report.books?.title || 'Unknown title'}
+                    {report.books?.author ? ` • ${report.books.author}` : ''}
+                  </Text>
+
+                  {report.current_url ? (
+                    <TouchableOpacity onPress={() => openUrlIfPossible(report.current_url!)}>
+                      <Text style={styles.reportLinkText}>Current: {report.current_url}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  <TouchableOpacity onPress={() => openUrlIfPossible(report.proposed_url)}>
+                    <Text style={styles.reportLinkText}>Proposed: {report.proposed_url}</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.reportActionsRow}>
+                    <TouchableOpacity
+                      style={styles.rejectReportBtn}
+                      onPress={() => handleRejectReport(report.id)}
+                      disabled={processingReportId === report.id}
+                    >
+                      <Text style={styles.rejectReportBtnText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.acceptReportBtn}
+                      onPress={() => handleAcceptReport(report.id)}
+                      disabled={processingReportId === report.id}
+                    >
+                      <Text style={styles.acceptReportBtnText}>
+                        {processingReportId === report.id ? 'Processing...' : 'Accept & Replace'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <LogOut size={20} color="#F44336" style={{ marginRight: 10 }} />
           <Text style={styles.logoutText}>Log Out</Text>
@@ -207,6 +350,81 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontSize: 13, fontWeight: '700', color: colors.primary,
     textTransform: 'uppercase', letterSpacing: 1,
     marginBottom: 16, marginLeft: 4,
+  },
+  adminHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  refreshReportsText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  emptyReportsText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  reportCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+  },
+  reportTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  reportTypeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  reportBookTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  reportLinkText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  reportActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  acceptReportBtn: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  acceptReportBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  rejectReportBtn: {
+    flex: 1,
+    backgroundColor: isDark ? 'rgba(244,67,54,0.2)' : 'rgba(244,67,54,0.12)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  rejectReportBtnText: {
+    color: '#F44336',
+    fontWeight: '700',
+    fontSize: 12,
   },
   row: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

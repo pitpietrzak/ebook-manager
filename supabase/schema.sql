@@ -17,6 +17,7 @@ create table public.books (
   moods text[],          -- an array of moods, e.g. ['sad', 'inspiring']
   folder_tags text[],    -- an array of nested Google Drive parent folders
   drive_file_id text not null unique,  -- Google Drive File ID so we don't duplicate
+  isbn text,             -- ISBN for book identification (10 or 13 digit)
   embedding vector(1536), -- 1536 is the dimension for openai text-embedding-3-small
   user_id uuid references auth.users(id) on delete cascade
 );

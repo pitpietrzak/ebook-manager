@@ -51,7 +51,7 @@ type Book = {
   moods: string[];
   folder_tags: string[];
   user_id: string;
-  profiles?: { display_name: string } | null;
+  profiles?: { display_name?: string | null; email?: string } | null;
 };
 
 const COLLECTION_COLORS = ['#8B5CF6', '#D946EF', '#F43F5E', '#6366F1', '#EC4899', '#3B82F6', '#06B6D4', '#10B981'];
@@ -123,7 +123,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
     setLoading(true);
     let tryQuery = supabase
       .from('books')
-      .select('*, profiles(display_name)')
+      .select('*')
       .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false });
     
@@ -137,9 +137,30 @@ export default function LibraryScreen({ navigation, route }: Props) {
     const { data, error } = await tryQuery;
     
     if (!error && data) {
-      setAllBooks(data);
-      setDisplayedBooks(data);
-      if (isHomeView) fetchCollections(data);
+      const userIds = Array.from(new Set((data || []).map((b: any) => b.user_id).filter(Boolean)));
+      let booksWithProfiles = data;
+
+      if (userIds.length > 0) {
+        const { data: profileRows } = await supabase
+          .from('profiles')
+          .select('id, display_name, email')
+          .in('id', userIds);
+
+        const profileById = new Map((profileRows || []).map((p: any) => [p.id, p]));
+        booksWithProfiles = data.map((book: any) => ({
+          ...book,
+          profiles: profileById.get(book.user_id)
+            ? {
+                display_name: profileById.get(book.user_id)?.display_name || null,
+                email: profileById.get(book.user_id)?.email || undefined,
+              }
+            : null,
+        }));
+      }
+
+      setAllBooks(booksWithProfiles);
+      setDisplayedBooks(booksWithProfiles);
+      if (isHomeView) fetchCollections(booksWithProfiles);
     } else {
       // Fallback (strict filtering)
       let fallbackQuery = supabase
@@ -288,32 +309,38 @@ export default function LibraryScreen({ navigation, route }: Props) {
           <Text style={styles.bookCoverInitial}>{item.title?.[0]}</Text>
         </View>
         <View style={styles.bookInfo}>
-          <View style={styles.bookTitleRow}>
-            <Text style={styles.bookTitle} numberOfLines={1}>{item.title}</Text>
-            {profile?.is_admin && (
-              <View style={[styles.bookVerifiedPill, item.verified ? styles.bookVerifiedPillOk : styles.bookVerifiedPillPending]}>
-                <CheckCircle2 size={14} color={item.verified ? '#1B5E20' : '#8D6E00'} />
+          <View>
+            <View style={styles.bookTitleRow}>
+              <Text style={styles.bookTitle} numberOfLines={1}>{item.title}</Text>
+              {profile?.is_admin && (
+                <View style={[styles.bookVerifiedPill, item.verified ? styles.bookVerifiedPillOk : styles.bookVerifiedPillPending]}>
+                  <CheckCircle2 size={14} color={item.verified ? '#1B5E20' : '#8D6E00'} />
+                </View>
+              )}
+            </View>
+            <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
+
+            <View style={styles.bookMeta}>
+              {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
+            </View>
+
+            {item.moods?.length > 0 && (
+              <View style={styles.moodRow}>
+                {item.moods.slice(0, 2).map(m => (
+                  <View key={m} style={styles.moodChip}>
+                    <Text style={styles.moodChipText}>{m}</Text>
+                  </View>
+                ))}
               </View>
             )}
           </View>
-          <Text style={styles.bookAuthor} numberOfLines={1}>{item.author || 'Unknown Author'}</Text>
-          
-          <View style={styles.bookMeta}>
-            {item.genre ? <Text style={styles.bookGenre}>{item.genre}</Text> : null}
-            {item.profiles?.display_name && (
-              <Text style={styles.uploaderName}>• {item.profiles.display_name}</Text>
-            )}
-          </View>
-          
-          {item.moods?.length > 0 && (
-            <View style={styles.moodRow}>
-              {item.moods.slice(0, 2).map(m => (
-                <View key={m} style={styles.moodChip}>
-                  <Text style={styles.moodChipText}>{m}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+
+          {(() => {
+            const displayName = item.profiles?.display_name?.trim() || item.profiles?.email?.split('@')[0];
+            return displayName ? (
+              <Text style={styles.uploaderBottomRight} numberOfLines={1}>Added by {displayName}</Text>
+            ) : null;
+          })()}
         </View>
         <ChevronRight size={20} color={colors.border} />
       </TouchableOpacity>
@@ -631,7 +658,7 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     position: 'absolute', bottom: 4, right: 6,
     fontSize: 12, fontWeight: '900', color: colors.primary, opacity: 0.3 
   },
-  bookInfo: { flex: 1 },
+  bookInfo: { flex: 1, minHeight: 80, justifyContent: 'space-between' },
   bookTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -639,7 +666,7 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 4,
   },
   bookTitle: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 4 },
-  bookAuthor: { fontSize: 14, color: colors.textSecondary, marginBottom: 6 },
+  bookAuthor: { fontSize: 14, color: colors.textSecondary, marginBottom: 3 },
   bookVerifiedPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -655,8 +682,8 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   bookMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   bookGenre: { fontSize: 12, color: colors.primary, fontWeight: '700', backgroundColor: colors.primary + '11', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  uploaderName: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  uploaderBottomRight: { fontSize: 11, color: colors.textSecondary, fontWeight: '600', alignSelf: 'flex-end', marginTop: 8 },
   moodChip: {
     backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', 
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,

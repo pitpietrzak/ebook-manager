@@ -1311,6 +1311,7 @@ serve(async (req: Request) => {
       folderTags = [],
       driveUploadedAt = null,
       providerToken = null,
+      userId = null,
     } = await req.json();
 
     const normalizedFileTitle = normalizeFilenameTitle(fileName);
@@ -1660,7 +1661,7 @@ Output a single JSON object:
         isbn: extractedIsbns[0] || null,
         ...(parsedDriveUploadedAt ? { drive_uploaded_at: parsedDriveUploadedAt } : {}),
         embedding,
-        user_id: user.id
+        user_id: userId || user.id
       }, { onConflict: 'drive_file_id' })
       .select()
       .single();

@@ -199,6 +199,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
               fileName: book.fileName,
               folderTags: book.folderTags,
               driveUploadedAt: book.driveUploadedAt || null,
+              userId: book.userId || null,
               providerToken,
             }
           })

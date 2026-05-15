@@ -38,7 +38,7 @@ type Book = {
   folder_tags?: string[];
   moods: string[];
   user_id: string;
-  profiles?: { display_name: string } | null;
+  profiles?: { display_name?: string | null; email?: string } | null;
 };
 
 export default function BookDetailScreen({ navigation, route }: Props) {
@@ -161,7 +161,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     setLoading(true);
     const { data, error } = await supabase
       .from('books')
-      .select('*, profiles(display_name)')
+      .select('*')
       .eq('id', bookId)
       .single();
 
@@ -174,7 +174,21 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         .single();
       if (fallbackData) setBook(fallbackData);
     } else if (data) {
-      setBook(data);
+      let bookWithProfile = data as any;
+      if (data.user_id) {
+        const { data: uploaderProfile } = await supabase
+          .from('profiles')
+          .select('display_name, email')
+          .eq('id', data.user_id)
+          .maybeSingle();
+
+        bookWithProfile = {
+          ...data,
+          profiles: uploaderProfile || null,
+        };
+      }
+
+      setBook(bookWithProfile);
     }
     setLoading(false);
   };
@@ -460,12 +474,15 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             </View>
           )}
 
-          {book.profiles?.display_name && (
-            <View style={styles.uploaderRow}>
-              <User size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
-              <Text style={styles.uploader}>Added by {book.profiles.display_name}</Text>
-            </View>
-          )}
+          {(() => {
+            const displayName = book.profiles?.display_name?.trim() || book.profiles?.email?.split('@')[0] || 'Unknown';
+            return displayName ? (
+              <View style={styles.uploaderRow}>
+                <User size={14} color={colors.textSecondary} style={{ marginRight: 6 }} />
+                <Text style={styles.uploader}>Added by {displayName}</Text>
+              </View>
+            ) : null;
+          })()}
         </View>
 
         <View style={styles.ratingSection}>

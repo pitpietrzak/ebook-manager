@@ -12,7 +12,7 @@ import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import DynamicIcon from '../components/DynamicIcon';
-import { LayoutGrid, List as ListIcon, Star, MessageCircle, CheckCircle2 } from 'lucide-react-native';
+import { LayoutGrid, List as ListIcon, Star, MessageCircle, CheckCircle2, BookOpen } from 'lucide-react-native';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -22,6 +22,12 @@ type Props = {
 };
 
 type Collection = {
+  name: string;
+  count: number;
+};
+
+type SeriesSummary = {
+  id: string;
   name: string;
   count: number;
 };
@@ -44,10 +50,13 @@ type Reaction = {
 
 export default function DashboardScreen({ navigation }: Props) {
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [iconMap, setIconMap] = useState<Record<string, string>>({});
+  const [seriesList, setSeriesList] = useState<SeriesSummary[]>([]);
   const [recentBooks, setRecentBooks] = useState<Book[]>([]);
   const [recentReactions, setRecentReactions] = useState<Reaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [currentTab, setCurrentTab] = useState<'collections' | 'series'>('collections');
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -63,6 +72,43 @@ export default function DashboardScreen({ navigation }: Props) {
     const { data: booksData } = await supabase.from('books').select('*');
     const sortedCollections: Collection[] = getSortedCollections((booksData || []) as { folder_tags?: string[] | null }[]);
     setCollections(sortedCollections);
+
+    if (sortedCollections.length > 0) {
+      const { data: iconRows } = await supabase
+        .from('collection_icons')
+        .select('name, icon_name')
+        .in('name', sortedCollections.map((c) => c.name));
+
+      const nextMap: Record<string, string> = {};
+      (iconRows || []).forEach((row: any) => {
+        nextMap[row.name] = row.icon_name;
+      });
+      setIconMap(nextMap);
+    } else {
+      setIconMap({});
+    }
+
+    const booksWithSeries = (booksData || []).filter((b: any) => !!b.series_id);
+    const seriesCounts = booksWithSeries.reduce((acc: Record<string, number>, b: any) => {
+      acc[b.series_id] = (acc[b.series_id] || 0) + 1;
+      return acc;
+    }, {});
+
+    const seriesIds = Object.keys(seriesCounts);
+    if (seriesIds.length > 0) {
+      const { data: seriesRows } = await supabase
+        .from('series')
+        .select('id, name')
+        .in('id', seriesIds);
+
+      const nextSeries: SeriesSummary[] = (seriesRows || [])
+        .map((s: any) => ({ id: s.id, name: s.name, count: seriesCounts[s.id] || 0 }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+      setSeriesList(nextSeries);
+    } else {
+      setSeriesList([]);
+    }
 
     const { data: recent } = await supabase
       .from('books')
@@ -102,6 +148,7 @@ export default function DashboardScreen({ navigation }: Props) {
 
   const renderCollectionCard = ({ item }: { item: Collection; index: number }) => {
     const color = colors.primary;
+    const iconName = item.name === 'Uncategorised' ? 'Layers' : (iconMap[item.name] || 'Library');
     return (
       <TouchableOpacity
         style={viewMode === 'grid' ? styles.gridCard : styles.listCard}
@@ -112,7 +159,26 @@ export default function DashboardScreen({ navigation }: Props) {
         })}
       >
         <View style={[viewMode === 'grid' ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}> 
-          <DynamicIcon name={item.name === 'Uncategorised' ? 'Layers' : 'Library'} size={viewMode === 'grid' ? 28 : 22} color={color} />
+          <DynamicIcon name={iconName} size={viewMode === 'grid' ? 28 : 22} color={color} />
+        </View>
+        <View style={viewMode === 'grid' ? null : { flex: 1 }}>
+          <Text style={viewMode === 'grid' ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
+          <Text style={viewMode === 'grid' ? styles.gridCount : styles.listCount}>{item.count} {item.count === 1 ? 'book' : 'books'}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSeriesCard = ({ item }: { item: SeriesSummary }) => {
+    const color = colors.primary;
+    return (
+      <TouchableOpacity
+        style={viewMode === 'grid' ? styles.gridCard : styles.listCard}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('Library', { screen: 'LibraryCatalog', params: { collectionFilter: '__all__' } })}
+      >
+        <View style={[viewMode === 'grid' ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}> 
+          <DynamicIcon name="Library" size={viewMode === 'grid' ? 28 : 22} color={color} />
         </View>
         <View style={viewMode === 'grid' ? null : { flex: 1 }}>
           <Text style={viewMode === 'grid' ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
@@ -202,24 +268,96 @@ export default function DashboardScreen({ navigation }: Props) {
           </View>
         )}
 
-        <View style={styles.collectionsHeaderRow}>
-          <Text style={styles.sectionTitleNoMargin}>Collections</Text>
-          <View style={styles.toggleRow}>
-            <TouchableOpacity style={[styles.toggleBtn, viewMode === 'grid' && styles.toggleActive]} onPress={() => setViewMode('grid')}>
-              <LayoutGrid size={20} color={viewMode === 'grid' ? colors.primary : colors.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.toggleBtn, viewMode === 'list' && styles.toggleActive]} onPress={() => setViewMode('list')}>
-              <ListIcon size={20} color={viewMode === 'list' ? colors.primary : colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
+        {/* Tab Selector */}
+        <View style={styles.tabSelectorContainer}>
+          <TouchableOpacity
+            style={[styles.tabButton, currentTab === 'collections' && styles.tabButtonActive]}
+            onPress={() => setCurrentTab('collections')}
+          >
+            <Text style={[styles.tabButtonText, currentTab === 'collections' && styles.tabButtonTextActive]}>
+              Collections
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabButton, currentTab === 'series' && styles.tabButtonActive]}
+            onPress={() => setCurrentTab('series')}
+          >
+            <Text style={[styles.tabButtonText, currentTab === 'series' && styles.tabButtonTextActive]}>
+              Series
+            </Text>
+          </TouchableOpacity>
         </View>
-        <View style={[styles.collectionsWrap, viewMode === 'grid' && styles.collectionsGrid]}>
-          {collections.map((item, index) => (
-            <View key={item.name} style={viewMode === 'grid' ? styles.gridItemWrap : undefined}>
-              {renderCollectionCard({ item, index })}
+
+        {/* Collections Tab */}
+        {currentTab === 'collections' && (
+          <View style={styles.tabContent}>
+            <View style={styles.collectionsHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>Collections</Text>
+              <View style={styles.toggleRow}>
+                <TouchableOpacity style={[styles.toggleBtn, viewMode === 'grid' && styles.toggleActive]} onPress={() => setViewMode('grid')}>
+                  <LayoutGrid size={20} color={viewMode === 'grid' ? colors.primary : colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.toggleBtn, viewMode === 'list' && styles.toggleActive]} onPress={() => setViewMode('list')}>
+                  <ListIcon size={20} color={viewMode === 'list' ? colors.primary : colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
             </View>
-          ))}
-        </View>
+            <View style={[styles.collectionsWrap, viewMode === 'grid' && styles.collectionsGrid]}>
+              <ScrollView
+                nestedScrollEnabled
+                style={viewMode === 'grid' ? styles.collectionsScrollWindowGrid : styles.collectionsScrollWindowList}
+                showsVerticalScrollIndicator={true}
+              >
+                <View style={[styles.collectionsWrapInner, viewMode === 'grid' && styles.collectionsGrid]}>
+                  {collections.map((item, index) => (
+                    <View key={item.name} style={viewMode === 'grid' ? styles.gridItemWrap : undefined}>
+                      {renderCollectionCard({ item, index })}
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        )}
+
+        {/* Series Tab */}
+        {currentTab === 'series' && (
+          <View style={styles.tabContent}>
+            <View style={styles.collectionsHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>Series</Text>
+              <View style={styles.toggleRow}>
+                <TouchableOpacity style={[styles.toggleBtn, viewMode === 'grid' && styles.toggleActive]} onPress={() => setViewMode('grid')}>
+                  <LayoutGrid size={20} color={viewMode === 'grid' ? colors.primary : colors.textSecondary} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.toggleBtn, viewMode === 'list' && styles.toggleActive]} onPress={() => setViewMode('list')}>
+                  <ListIcon size={20} color={viewMode === 'list' ? colors.primary : colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            {seriesList.length > 0 ? (
+              <View style={[styles.collectionsWrap, viewMode === 'grid' && styles.collectionsGrid]}>
+                <ScrollView
+                  nestedScrollEnabled
+                  style={viewMode === 'grid' ? styles.collectionsScrollWindowGrid : styles.collectionsScrollWindowList}
+                  showsVerticalScrollIndicator={true}
+                >
+                  <View style={[styles.collectionsWrapInner, viewMode === 'grid' && styles.collectionsGrid]}>
+                    {seriesList.map((item) => (
+                      <View key={item.id} style={viewMode === 'grid' ? styles.gridItemWrap : undefined}>
+                        {renderSeriesCard({ item })}
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+            ) : (
+              <View style={styles.emptyReviewCard}>
+                <BookOpen size={18} color={colors.textSecondary} />
+                <Text style={styles.emptyReviewText}>No series assigned yet</Text>
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
       {loading && <View style={styles.loadingOverlay}><ActivityIndicator size="large" color={colors.primary} /></View>}
     </SafeAreaView>
@@ -235,11 +373,44 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   toggleActive: { backgroundColor: colors.primary + '11' },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginLeft: 16, marginTop: 24, marginBottom: 12 },
   sectionTitleNoMargin: { fontSize: 18, fontWeight: '800', color: colors.text },
+  tabSelectorContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 24,
+    marginBottom: 16,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  tabButtonTextActive: {
+    color: '#FFFFFF',
+  },
+  tabContent: {
+    flex: 1,
+    marginBottom: 16,
+  },
   collectionsHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 24,
     marginBottom: 12,
     paddingHorizontal: 16,
   },
@@ -317,6 +488,16 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   collectionsWrap: {
     paddingHorizontal: 12,
     paddingTop: 8,
+    flex: 1,
+  },
+  collectionsWrapInner: {
+    paddingRight: 2,
+  },
+  collectionsScrollWindowGrid: {
+    flex: 1,
+  },
+  collectionsScrollWindowList: {
+    flex: 1,
   },
   collectionsGrid: {
     flexDirection: 'row',

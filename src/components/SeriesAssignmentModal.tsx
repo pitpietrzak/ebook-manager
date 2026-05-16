@@ -137,7 +137,6 @@ export default function SeriesAssignmentModal({
                   placeholder="Series name (e.g. The Witcher)"
                   placeholderTextColor={colors.textSecondary + '88'}
                   selectionColor={colors.primary}
-                  autoFocus
                   onFocus={() => setSeriesNameFocused(true)}
                   onBlur={() => {
                     setTimeout(() => setSeriesNameFocused(false), 120);

@@ -30,7 +30,7 @@ type UnverifiedBook = {
 };
 
 export default function ProfileScreen() {
-  const { colors, isDark, toggleTheme, viewMode, toggleViewMode } = useTheme();
+  const { colors, isDark, toggleTheme } = useTheme();
   const { profile, updateDisplayName, setNotificationsEnabled, updateKindleEmail } = useProfile();
   const { currentVersion, checkForUpdates } = useVersion();
   const styles = getStyles(colors, isDark);
@@ -232,20 +232,7 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.row} onPress={toggleViewMode}>
-            <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.primary + '11' }]}>
-                {viewMode === 'grid' ? <List size={20} color={colors.primary} /> : <LayoutGrid size={20} color={colors.primary} />}
-              </View>
-              <Text style={styles.rowLabel}>Library View Mode</Text>
-            </View>
-            <View style={styles.rowRight}>
-               <Text style={[styles.rowValue, { marginRight: 12 }]}>{viewMode === 'grid' ? 'Grid' : 'List'}</Text>
-               <View style={[styles.toggle, viewMode === 'list' && styles.toggleActive]}>
-                 <View style={[styles.toggleDot, viewMode === 'list' && styles.toggleDotActive]} />
-               </View>
-            </View>
-          </TouchableOpacity>
+
         </View>
 
         <View style={styles.section}>

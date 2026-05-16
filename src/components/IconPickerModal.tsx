@@ -28,6 +28,12 @@ export default function IconPickerModal({
     icon.toLowerCase().includes(search.toLowerCase())
   );
 
+  React.useEffect(() => {
+    if (!visible) {
+      setSearch('');
+    }
+  }, [visible]);
+
   const renderIconItem = ({ item }: { item: string }) => (
     <TouchableOpacity 
       style={styles.iconItem} 
@@ -51,7 +57,8 @@ export default function IconPickerModal({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        <Pressable style={styles.overlay} onPress={onClose}>
+        <View style={styles.overlay}>
+          <Pressable style={styles.backdrop} onPress={onClose} />
           <View style={styles.container}>
             <View style={styles.content}>
               <View style={styles.header}>
@@ -85,10 +92,11 @@ export default function IconPickerModal({
                 contentContainerStyle={styles.listContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               />
             </View>
           </View>
-        </Pressable>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -97,8 +105,11 @@ export default function IconPickerModal({
 const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   container: {
     backgroundColor: colors.background,

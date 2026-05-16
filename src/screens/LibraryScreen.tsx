@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { CompositeNavigationProp, RouteProp } from '@react-navigation/native';
+import { CompositeNavigationProp, RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, TabParamList, LibraryStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
@@ -19,12 +19,14 @@ import { StatusBar } from 'react-native';
 import { 
   Search, Plus, Sparkles, Inbox, Book as BookIcon, 
   ChevronRight, Filter, Clock, RefreshCw, Folder as FolderIcon,
-  ChevronLeft, CheckCircle2
+  ChevronLeft, CheckCircle2, LayoutGrid, List as ListIcon
 } from 'lucide-react-native';
 import SyncModal from './SyncModal';
 import DynamicIcon from '../components/DynamicIcon';
 import IconPickerModal from '../components/IconPickerModal';
 import { getSortedCollections } from '../utils/collections';
+import FolderSeriesAssignmentModal from '../components/FolderSeriesAssignmentModal';
+import { assignBooksSeriesParts } from '../utils/series';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -57,6 +59,13 @@ type Book = {
   profiles?: { display_name?: string | null; email?: string } | null;
 };
 
+type FolderSeriesBook = {
+  id: string;
+  title: string;
+  author: string;
+  initialSeriesPart?: number | null;
+};
+
 const COLLECTION_COLORS = ['#8B5CF6', '#D946EF', '#F43F5E', '#6366F1', '#EC4899', '#3B82F6', '#06B6D4', '#10B981'];
 
 export default function LibraryScreen({ navigation, route }: Props) {
@@ -72,11 +81,16 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [editingCollection, setEditingCollection] = useState<{ name: string; index: number } | null>(null);
+  const [folderSeriesVisible, setFolderSeriesVisible] = useState(false);
+  const [seriesFolderName, setSeriesFolderName] = useState<string | null>(null);
+  const [folderSeriesBooks, setFolderSeriesBooks] = useState<FolderSeriesBook[]>([]);
+  const [loadingFolderSeriesBooks, setLoadingFolderSeriesBooks] = useState(false);
+  const [savingFolderSeries, setSavingFolderSeries] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [aiSearchMode, setAiSearchMode] = useState(false);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<Book[] | null>(null);
-  const { colors, isDark, viewMode } = useTheme();
+  const { colors, isDark, viewMode, toggleViewMode } = useTheme();
   const { profile } = useProfile();
 
   const { startUpload, isUploading, uploadNode } = useBookUpload(() => fetchBooks());
@@ -238,6 +252,12 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   useEffect(() => { fetchBooks(); }, [fetchBooks]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchBooks();
+    }, [fetchBooks])
+  );
+
   // Debounced local search across both language versions
   useEffect(() => {
     if (aiSearchMode) return;
@@ -306,6 +326,69 @@ export default function LibraryScreen({ navigation, route }: Props) {
     }
   };
 
+  const openFolderSeriesModal = async (folderName: string) => {
+    setSeriesFolderName(folderName);
+    setFolderSeriesVisible(true);
+    setLoadingFolderSeriesBooks(true);
+
+    try {
+      const escapedFolder = folderName.replace(/"/g, '\\"');
+      const { data, error } = await supabase
+        .from('books')
+        .select('id, title, author, series_part')
+        .filter('folder_tags', 'cs', `{"${escapedFolder}"}`)
+        .order('title', { ascending: true });
+
+      if (error) throw error;
+
+      setFolderSeriesBooks(
+        (data || []).map((item: any) => ({
+          id: item.id,
+          title: item.title || 'Untitled',
+          author: item.author || 'Unknown author',
+          initialSeriesPart: item.series_part ?? null,
+        }))
+      );
+    } catch (e: any) {
+      Alert.alert('Could not load folder books', e?.message || 'Please try again.');
+      setFolderSeriesVisible(false);
+      setSeriesFolderName(null);
+      setFolderSeriesBooks([]);
+    } finally {
+      setLoadingFolderSeriesBooks(false);
+    }
+  };
+
+  const handleSaveFolderSeries = async ({
+    seriesName,
+    assignments,
+  }: {
+    seriesName: string;
+    assignments: Array<{ bookId: string; seriesPart: number | null }>;
+  }) => {
+    if (!seriesFolderName) {
+      setFolderSeriesVisible(false);
+      return;
+    }
+
+    try {
+      setSavingFolderSeries(true);
+      const updatedCount = await assignBooksSeriesParts({
+        seriesName,
+        assignments,
+      });
+      setFolderSeriesVisible(false);
+      setSeriesFolderName(null);
+      setFolderSeriesBooks([]);
+      await fetchBooks();
+      Alert.alert('Saved', `Updated series for ${updatedCount} ${updatedCount === 1 ? 'book' : 'books'} in ${seriesFolderName}.`);
+    } catch (e: any) {
+      Alert.alert('Series update failed', e?.message || 'Could not update series for this folder.');
+    } finally {
+      setSavingFolderSeries(false);
+    }
+  };
+
   // Hide books on home explorer view unless searching or AI results exist
   const booksToShow = (isHomeView && !searchQuery && !aiResults) ? [] : (aiResults ?? displayedBooks);
 
@@ -320,10 +403,24 @@ export default function LibraryScreen({ navigation, route }: Props) {
           item.name === 'All Books' ? '__all__' : (item.name === 'Uncategorised' ? '__uncategorised__' : item.name)
         )}
         onLongPress={() => {
-          if (item.name !== 'All Books' && item.name !== 'Uncategorised') {
-            setEditingCollection({ name: item.name, index });
-            setPickerVisible(true);
-          }
+          if (item.name === 'All Books' || item.name === 'Uncategorised') return;
+
+          Alert.alert('Folder Actions', `Choose action for "${item.name}"`, [
+            {
+              text: 'Set Icon',
+              onPress: () => {
+                setEditingCollection({ name: item.name, index });
+                setPickerVisible(true);
+              },
+            },
+            {
+              text: 'Set Series for All Books',
+              onPress: () => {
+                openFolderSeriesModal(item.name);
+              },
+            },
+            { text: 'Cancel', style: 'cancel' },
+          ]);
         }}
         delayLongPress={300}
         activeOpacity={0.7}
@@ -491,6 +588,14 @@ export default function LibraryScreen({ navigation, route }: Props) {
                 <View style={styles.collectionsSection}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Folders</Text>
+                    <View style={styles.toggleRow}>
+                      <TouchableOpacity style={[styles.toggleBtn, viewMode === 'grid' && styles.toggleActive]} onPress={() => toggleViewMode()}>
+                        <LayoutGrid size={20} color={viewMode === 'grid' ? colors.primary : colors.textSecondary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.toggleBtn, viewMode === 'list' && styles.toggleActive]} onPress={() => toggleViewMode()}>
+                        <ListIcon size={20} color={viewMode === 'list' ? colors.primary : colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   <View style={[styles.collectionsVertical, viewMode === 'grid' && styles.collectionsGrid]}>
                     <View style={viewMode === 'grid' ? { width: '48%' } : { width: '100%' }}>
@@ -575,6 +680,21 @@ export default function LibraryScreen({ navigation, route }: Props) {
         collectionName={editingCollection?.name || ''}
         currentColor={editingCollection ? COLLECTION_COLORS[editingCollection.index % COLLECTION_COLORS.length] : colors.primary}
       />
+
+      <FolderSeriesAssignmentModal
+        visible={folderSeriesVisible}
+        folderName={seriesFolderName || ''}
+        books={folderSeriesBooks}
+        loadingBooks={loadingFolderSeriesBooks}
+        saving={savingFolderSeries}
+        onCancel={() => {
+          if (savingFolderSeries) return;
+          setFolderSeriesVisible(false);
+          setSeriesFolderName(null);
+          setFolderSeriesBooks([]);
+        }}
+        onSave={handleSaveFolderSeries}
+      />
     </SafeAreaView>
   );
 }
@@ -653,9 +773,13 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   collectionsSection: { marginBottom: 8 },
   sectionHeader: { 
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', 
-    marginBottom: 16, 
+    marginBottom: 16,
+    paddingHorizontal: 0,
   },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
+  toggleRow: { flexDirection: 'row', gap: 8 },
+  toggleBtn: { padding: 8, borderRadius: 10 },
+  toggleActive: { backgroundColor: colors.primary + '11' },
   seeAllText: { fontSize: 13, color: colors.primary, fontWeight: '700' },
   collectionsVertical: { gap: 12 },
   collectionsGrid: { 

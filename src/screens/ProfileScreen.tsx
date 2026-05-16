@@ -292,7 +292,7 @@ export default function ProfileScreen() {
             <Text style={styles.rowValue}>{currentVersion}</Text>
           </View>
 
-          <TouchableOpacity style={styles.row} onPress={checkForUpdates}>
+          <TouchableOpacity style={styles.row} onPress={() => checkForUpdates(false)}>
             <View style={styles.rowLeft}>
               <View style={[styles.iconBox, { backgroundColor: colors.accent + '11' }]}>
                 <Download size={20} color={colors.accent} />

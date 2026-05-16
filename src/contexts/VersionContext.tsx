@@ -16,7 +16,7 @@ interface VersionContextType {
   currentVersion: string;
   latestVersion: SystemVersion | null;
   hasUpdateAvailable: boolean;
-  checkForUpdates: () => Promise<void>;
+  checkForUpdates: (silent?: boolean) => Promise<void>;
 }
 
 const VersionContext = createContext<VersionContextType | undefined>(undefined);
@@ -44,7 +44,7 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [latestVersion, setLatestVersion] = useState<SystemVersion | null>(null);
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
 
-  const checkForUpdates = async () => {
+  const checkForUpdates = async (silent = true) => {
     try {
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
 
@@ -61,12 +61,11 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       if (data) {
         setLatestVersion(data);
-        const isNewer = compareVersions(currentVersion, data.version) < 0;
+        const isNewer = compareVersions(currentVersion, data.version) > 0;
         setHasUpdateAvailable(isNewer);
 
         if (isNewer) {
           const isRequired = data.is_required;
-          const platformLabel = platform === 'ios' ? 'iOS' : 'Android';
           const message = isRequired
             ? `A critical update to v${data.version} is available. You must update to continue.\n\n${data.release_notes || ''}`
             : `A new version v${data.version} is available!\n\n${data.release_notes || 'Update now to get the latest features and fixes.'}`;
@@ -102,7 +101,11 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   },
                 ]
           );
+        } else if (!silent) {
+          Alert.alert('Up to Date', `You're running the latest version (v${currentVersion}).`);
         }
+      } else if (!silent) {
+        Alert.alert('Up to Date', `You're running the latest version (v${currentVersion}).`);
       }
     } catch (e) {
       console.warn('Version check failed:', e);
@@ -110,7 +113,7 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
-    checkForUpdates();
+    checkForUpdates(true);
   }, []);
 
   return (

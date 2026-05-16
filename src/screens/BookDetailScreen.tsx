@@ -640,17 +640,15 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             </Text>
           </TouchableOpacity>
 
-          {profile?.is_admin && (
-            <TouchableOpacity
-              style={[styles.secondaryButton, savingSeries && { opacity: 0.7 }]}
-              onPress={() => setSeriesModalVisible(true)}
-              disabled={savingSeries}
-            >
-              <Text style={styles.secondaryButtonText}>
-                {savingSeries ? 'Saving...' : 'Set Series'}
-              </Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[styles.secondaryButton, savingSeries && { opacity: 0.7 }]}
+            onPress={() => setSeriesModalVisible(true)}
+            disabled={savingSeries}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {savingSeries ? 'Saving...' : 'Set Series'}
+            </Text>
+          </TouchableOpacity>
 
           <View style={styles.linkRows}>
             <View style={styles.linkActionRow}>

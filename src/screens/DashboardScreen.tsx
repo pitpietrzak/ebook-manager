@@ -41,11 +41,13 @@ type Book = {
 
 type Reaction = {
   book_id: string;
+  user_id: string;
   review?: string | null;
   rating: number;
   created_at: string;
   bookTitle: string;
-  author: string;
+  bookAuthor: string;
+  reviewerName: string;
 };
 
 export default function DashboardScreen({ navigation }: Props) {
@@ -120,23 +122,35 @@ export default function DashboardScreen({ navigation }: Props) {
 
     const { data: latestRatings } = await supabase
       .from('book_ratings')
-      .select('book_id, review, rating, created_at')
+      .select('book_id, user_id, review, rating, created_at')
       .order('created_at', { ascending: false })
       .limit(3);
 
     if (latestRatings?.length) {
       const bookIds = latestRatings.map(item => item.book_id);
+      const reviewerIds = latestRatings.map(item => item.user_id);
       const { data: books } = await supabase
         .from('books')
         .select('id, title, author')
         .in('id', bookIds);
 
+      const { data: reviewers } = await supabase
+        .from('profiles')
+        .select('id, display_name, email')
+        .in('id', reviewerIds);
+
       const bookMap = Object.fromEntries((books || []).map(book => [book.id, book]));
+      const reviewerMap = Object.fromEntries((reviewers || []).map((reviewer: any) => [
+        reviewer.id,
+        reviewer.display_name?.trim() || reviewer.email?.split('@')[0] || 'Reader',
+      ]));
+
       setRecentReactions(
         latestRatings.map(item => ({
           ...item,
           bookTitle: bookMap[item.book_id]?.title || 'Unknown book',
-          author: bookMap[item.book_id]?.author || 'Unknown author',
+          bookAuthor: bookMap[item.book_id]?.author || 'Unknown author',
+          reviewerName: reviewerMap[item.user_id] || 'Reader',
         }))
       );
     } else {
@@ -240,7 +254,8 @@ export default function DashboardScreen({ navigation }: Props) {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.reviewBookTitle} numberOfLines={1}>{reaction.bookTitle}</Text>
-                    <Text style={styles.reviewAuthor} numberOfLines={1}>{reaction.author}</Text>
+                    <Text style={styles.reviewAuthor} numberOfLines={1}>By {reaction.bookAuthor}</Text>
+                    <Text style={styles.reviewReviewer} numberOfLines={1}>Review by {reaction.reviewerName}</Text>
                   </View>
                 </View>
                 <View style={styles.reviewStars}>
@@ -470,6 +485,7 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   reviewBookTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   reviewAuthor: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  reviewReviewer: { fontSize: 11, color: colors.textSecondary, marginTop: 2, opacity: 0.85 },
   reviewStars: { flexDirection: 'row', gap: 2 },
   reviewText: { fontSize: 14, lineHeight: 20, color: colors.textSecondary },
   emptyReviewCard: {

@@ -50,6 +50,7 @@ import { DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { LayoutDashboard, BookOpen, User as UserIcon } from 'lucide-react-native';
 import { validateGoogleSessionOnAppOpen } from './src/utils/googleAuth';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
 
 // Additional Screen
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -100,10 +101,44 @@ function TabNavigator() {
   );
 }
 
+// Set up notification handlers at app bootstrap
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const { colors, isDark } = useTheme();
   const supabaseConfigError = getSupabaseConfigError();
+
+  // Set up notification event listeners
+  useEffect(() => {
+    // Handle notification received in foreground
+    const foregroundSubscription = Notifications.addNotificationReceivedListener(
+      (_notification) => {
+        // Notification will be shown by setNotificationHandler
+      }
+    );
+
+    // Handle notification tap
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        console.log('Notification response:', response.notification);
+        // Optional: navigate to relevant screen based on notification data
+      }
+    );
+
+    return () => {
+      foregroundSubscription.remove();
+      responseSubscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (supabaseConfigError) {

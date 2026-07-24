@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { supabase } from '../utils/supabase';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
@@ -29,6 +29,29 @@ const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const processedNotificationsForUserRef = useRef<string | null>(null);
+
+  const processExistingNotifications = async (userId: string) => {
+    if (processedNotificationsForUserRef.current === userId) {
+      return;
+    }
+
+    processedNotificationsForUserRef.current = userId;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('process-existing-notifications', {
+        body: { user_id: userId },
+      });
+
+      if (error) {
+        console.error('[Push] process-existing-notifications invoke error:', error);
+      } else {
+        console.log('[Push] process-existing-notifications invoked:', data);
+      }
+    } catch (e) {
+      console.error('[Push] Error invoking process-existing-notifications:', e);
+    }
+  };
 
   useEffect(() => {
     fetchProfile();
@@ -44,6 +67,9 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       fetchProfile();
+      processExistingNotifications(session.user.id);
+      // Re-register push token after login to ensure it's always fresh
+      registerForPushNotificationsAsync();
     });
 
     return () => {
@@ -96,6 +122,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
 
       setProfile(nextProfile);
+      processExistingNotifications(user.id);
     } catch (e) {
       console.error('Error fetching profile:', e);
     } finally {
@@ -177,7 +204,10 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const registerForPushNotificationsAsync = async () => {
-    if (!Device.isDevice) return;
+    if (!Device.isDevice) {
+      console.log('[Push] Skipping registration: physical device required');
+      return;
+    }
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
@@ -186,19 +216,19 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
       finalStatus = status;
     }
     if (finalStatus !== 'granted') {
-      console.log('Failed to get push token for push notification!');
+      console.log('[Push] Permission not granted, skipping token registration');
       return;
     }
 
     const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
     if (!projectId) {
-      console.log('Project ID not found');
+      console.log('[Push] Project ID not found, skipping token registration');
       return;
     }
 
     try {
       const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-      console.log('Push Token:', token);
+      console.log('[Push] Token registered');
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -206,9 +236,13 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
           .from('profiles')
           .update({ push_token: token })
           .eq('id', user.id);
+
+        processExistingNotifications(user.id);
+      } else {
+        console.log('[Push] No authenticated user, skipping profile token update');
       }
     } catch (e) {
-      console.error('Error getting push token:', e);
+      console.error('[Push] Error getting push token:', e);
     }
   };
 

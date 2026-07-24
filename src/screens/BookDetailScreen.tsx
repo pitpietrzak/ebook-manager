@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, TextInput, Modal } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
@@ -46,6 +46,14 @@ type Book = {
   profiles?: { display_name?: string | null; email?: string } | null;
 };
 
+type BookReview = {
+  user_id: string;
+  rating: number;
+  review?: string | null;
+  created_at: string;
+  reviewerName: string;
+};
+
 export default function BookDetailScreen({ navigation, route }: Props) {
   const { bookId } = route.params;
   const [book, setBook] = useState<Book | null>(null);
@@ -66,6 +74,9 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [movingFolder, setMovingFolder] = useState(false);
   const [seriesModalVisible, setSeriesModalVisible] = useState(false);
   const [savingSeries, setSavingSeries] = useState(false);
+  const [reviewsModalVisible, setReviewsModalVisible] = useState(false);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [allReviews, setAllReviews] = useState<BookReview[]>([]);
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -103,6 +114,45 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       }
     } catch (e) {
       console.warn('Ratings fetch failed:', e);
+    }
+  };
+
+  const fetchAllReviews = async () => {
+    try {
+      setReviewsLoading(true);
+
+      const { data: ratings, error } = await supabase
+        .from('book_ratings')
+        .select('user_id, rating, review, created_at')
+        .eq('book_id', bookId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const reviewerIds = (ratings || []).map((item: any) => item.user_id);
+      const { data: reviewers } = reviewerIds.length
+        ? await supabase
+            .from('profiles')
+            .select('id, display_name, email')
+            .in('id', reviewerIds)
+        : { data: [] as any[] };
+
+      const reviewerMap = Object.fromEntries((reviewers || []).map((reviewer: any) => [
+        reviewer.id,
+        reviewer.display_name?.trim() || reviewer.email?.split('@')[0] || 'Reader',
+      ]));
+
+      const mapped: BookReview[] = (ratings || []).map((item: any) => ({
+        ...item,
+        reviewerName: reviewerMap[item.user_id] || 'Reader',
+      }));
+
+      setAllReviews(mapped);
+    } catch (e) {
+      console.warn('All reviews fetch failed:', e);
+      setAllReviews([]);
+    } finally {
+      setReviewsLoading(false);
     }
   };
 
@@ -590,6 +640,17 @@ export default function BookDetailScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             </>
           )}
+
+          <TouchableOpacity
+            style={styles.showReviewsBtn}
+            onPress={() => {
+              setReviewsModalVisible(true);
+              fetchAllReviews();
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.showReviewsBtnText}>Show reviews</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.tagsContainer}>
@@ -774,6 +835,54 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       saveLabel="Save"
       skipLabel="Clear"
     />
+
+    <Modal
+      visible={reviewsModalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setReviewsModalVisible(false)}
+    >
+      <View style={styles.reviewsModalBackdrop}>
+        <View style={styles.reviewsModalCard}>
+          <View style={styles.reviewsModalHeader}>
+            <Text style={styles.reviewsModalTitle}>Reviews</Text>
+            <TouchableOpacity onPress={() => setReviewsModalVisible(false)}>
+              <Text style={styles.reviewsModalClose}>Close</Text>
+            </TouchableOpacity>
+          </View>
+
+          {reviewsLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+          ) : allReviews.length === 0 ? (
+            <Text style={styles.reviewsEmpty}>No reviews yet for this book.</Text>
+          ) : (
+            <ScrollView style={styles.reviewsList} showsVerticalScrollIndicator>
+              {allReviews.map((item, idx) => (
+                <View key={`${item.user_id}-${item.created_at}-${idx}`} style={styles.reviewItem}>
+                  <View style={styles.reviewItemHeader}>
+                    <Text style={styles.reviewItemAuthor}>{item.reviewerName}</Text>
+                    <Text style={styles.reviewItemDate}>{new Date(item.created_at).toLocaleDateString()}</Text>
+                  </View>
+                  <View style={styles.reviewItemStars}>
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        size={14}
+                        fill={s <= item.rating ? '#FFD700' : 'transparent'}
+                        color={s <= item.rating ? '#FFD700' : colors.border}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.reviewItemText}>
+                    {item.review?.trim() ? item.review : 'No written note, rating only.'}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
     </>
   );
 }
@@ -911,6 +1020,20 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     fontWeight: '800',
     fontSize: 14,
   },
+  showReviewsBtn: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  showReviewsBtnText: {
+    color: colors.textSecondary,
+    fontWeight: '700',
+    fontSize: 13,
+  },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1013,5 +1136,77 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   linkPillText: {
     fontSize: 14,
     fontWeight: '700',
-  }
+  },
+  reviewsModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  reviewsModalCard: {
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxHeight: '75%',
+    padding: 16,
+  },
+  reviewsModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  reviewsModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  reviewsModalClose: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  reviewsList: {
+    maxHeight: 460,
+  },
+  reviewsEmpty: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    paddingVertical: 8,
+  },
+  reviewItem: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+  },
+  reviewItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  reviewItemAuthor: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  reviewItemDate: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  reviewItemStars: {
+    flexDirection: 'row',
+    gap: 2,
+    marginBottom: 8,
+  },
+  reviewItemText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+  },
 });

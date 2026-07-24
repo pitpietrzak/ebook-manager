@@ -1,4 +1,4 @@
--- Insert/update system version for Android 1.1.3
+AltStore-- Insert/update system version for Android 1.1.3
 -- Build URL from EAS build cf6a4db8-e53c-4e60-9351-bb7dfd8a82c6
 
 insert into public.system_versions (platform, version, download_url, release_notes, is_required)

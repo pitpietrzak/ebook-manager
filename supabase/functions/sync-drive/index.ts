@@ -71,11 +71,18 @@ serve(async (req) => {
       throw new Error('Missing provider token or shared folder ID');
     }
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
     const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      supabaseUrl,
+      supabaseAnonKey,
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     );
+    const supabaseAdmin = supabaseServiceKey
+      ? createClient(supabaseUrl, supabaseServiceKey)
+      : supabaseClient;
 
     // 1. Get user session
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
@@ -85,15 +92,18 @@ serve(async (req) => {
     const discoveredBooks = await fetchFolderRecursive(sharedFolderId, [], providerToken);
 
     // 3. Fetch existing books from Supabase to prevent duplicates and detect moved files
-    const { data: existingBooks } = await supabaseClient
+    const { data: existingBooks, error: existingBooksError } = await supabaseAdmin
       .from('books')
       .select('id, drive_file_id, folder_tags, user_id');
+    if (existingBooksError) throw existingBooksError;
+
     const existingByDriveId = new Map<string, { id: string; drive_file_id: string; folder_tags: string[] | null; user_id: string }>(
       (existingBooks || []).map((b: any) => [b.drive_file_id, b])
     );
     const existingFileIds = new Set(existingByDriveId.keys());
+    const discoveredDriveIds = new Set(discoveredBooks.map((book: any) => book.driveFileId).filter(Boolean));
 
-    const newBooksToProcess = discoveredBooks.filter(b => !existingFileIds.has(b.driveFileId));
+    const newBooksToProcess = discoveredBooks.filter((b: any) => !existingFileIds.has(b.driveFileId));
 
     // 4. For new books, look up the owner's user_id from the profiles table by email
     const newBooksWithUserId = await Promise.all(
@@ -116,7 +126,24 @@ serve(async (req) => {
       })
     );
 
-    // 5. Update folder tags and user_id for books that already exist
+    // 5. Remove books that are no longer present in Drive
+    const booksToDelete = (existingBooks || []).filter((book: any) => {
+      if (!book?.drive_file_id) return false;
+      return !discoveredDriveIds.has(book.drive_file_id);
+    });
+
+    let deletedBooksCount = 0;
+    if (booksToDelete.length > 0) {
+      const { error: deleteError } = await supabaseAdmin
+        .from('books')
+        .delete()
+        .in('drive_file_id', booksToDelete.map((book: any) => book.drive_file_id));
+
+      if (deleteError) throw deleteError;
+      deletedBooksCount = booksToDelete.length;
+    }
+
+    // 6. Update folder tags and user_id for books that already exist
     let movedBooksUpdated = 0;
     for (const discovered of discoveredBooks) {
       const existing = existingByDriveId.get(discovered.driveFileId);
@@ -148,7 +175,7 @@ serve(async (req) => {
       if (tagsChanged) updateData.folder_tags = nextTags;
       if (ownerChanged) updateData.user_id = nextUserId;
 
-      const { error: updateError } = await supabaseClient
+      const { error: updateError } = await supabaseAdmin
         .from('books')
         .update(updateData)
         .eq('id', existing.id);
@@ -163,6 +190,7 @@ serve(async (req) => {
       success: true, 
       discoveredCount: discoveredBooks.length,
       movedBooksUpdated,
+      deletedBooksCount,
       newBooks: newBooksWithUserId
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

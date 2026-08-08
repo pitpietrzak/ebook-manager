@@ -169,18 +169,19 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
 
       const newBooks = data?.newBooks || [];
       const movedBooksUpdated = Number(data?.movedBooksUpdated || 0);
+      const deletedBooksCount = Number(data?.deletedBooksCount || 0);
 
-      if (newBooks.length === 0 && movedBooksUpdated === 0) {
+      if (newBooks.length === 0 && movedBooksUpdated === 0 && deletedBooksCount === 0) {
         setSyncProgress({ current: 0, total: 0, status: 'All books are already synced! ✅' });
         setTimeout(onSyncComplete, 1500);
         return;
       }
 
-      if (newBooks.length === 0 && movedBooksUpdated > 0) {
+      if (newBooks.length === 0 && movedBooksUpdated === 0 && deletedBooksCount > 0) {
         setSyncProgress({
           current: 0,
           total: 0,
-          status: `Updated ${movedBooksUpdated} moved book${movedBooksUpdated === 1 ? '' : 's'} ✅`
+          status: `Removed ${deletedBooksCount} deleted book${deletedBooksCount === 1 ? '' : 's'} ✅`
         });
         setTimeout(onSyncComplete, 1500);
         return;
@@ -212,10 +213,12 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
         done++;
       }
 
-      const movedSuffix = movedBooksUpdated > 0
-        ? ` and updated ${movedBooksUpdated} moved book${movedBooksUpdated === 1 ? '' : 's'}`
-        : '';
-      setSyncProgress({ current: done, total: done, status: `Done! Synced ${done} new books${movedSuffix} ✅` });
+      const summaryParts: string[] = [];
+      if (done > 0) summaryParts.push(`synced ${done} new book${done === 1 ? '' : 's'}`);
+      if (movedBooksUpdated > 0) summaryParts.push(`updated ${movedBooksUpdated} moved book${movedBooksUpdated === 1 ? '' : 's'}`);
+      if (deletedBooksCount > 0) summaryParts.push(`removed ${deletedBooksCount} deleted book${deletedBooksCount === 1 ? '' : 's'}`);
+
+      setSyncProgress({ current: done, total: done, status: `Done! ${summaryParts.join(', ')} ✅` });
       setTimeout(onSyncComplete, 1500);
     } catch (e: any) {
       setSyncProgress({ current: 0, total: 0, status: `Error: ${e.message}` });

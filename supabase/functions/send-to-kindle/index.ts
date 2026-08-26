@@ -59,13 +59,16 @@ serve(async (req) => {
     }
 
     const fileBytes = new Uint8Array(await driveResponse.arrayBuffer());
-    const base64Attachment = encode(fileBytes);
     const safeFileName = (meta.name || `${book.title}.epub`).replace(/["\\]/g, '_');
     const attachmentMimeType = meta.mimeType || 'application/octet-stream';
 
-    // 4. Construct MIME Message (RFC 5322)
+    // 4. Construct MIME Message (RFC 5322) and stream it to Gmail instead of
+    // materializing a full base64 copy + a full joined-message copy in memory
+    // (that combination was what blew past the edge function memory limit).
     const boundary = "sloth_library_boundary";
-    const mimeParts = [
+    const textEncoder = new TextEncoder();
+
+    const header = [
       `To: ${email}`,
       `Subject: Convert: ${book.title}`,
       `MIME-Version: 1.0`,
@@ -82,20 +85,32 @@ serve(async (req) => {
       `Content-Disposition: attachment; filename="${safeFileName}"`,
       `Content-Transfer-Encoding: base64`,
       ``,
-      base64Attachment,
-      `--${boundary}--`
-    ];
+    ].join("\r\n") + "\r\n";
 
-    const mimeMessage = mimeParts.join("\r\n");
+    const footer = `\r\n--${boundary}--`;
 
-    // 5. Send via Gmail upload API to avoid an extra full-message base64 copy in memory
+    // Multiple of 3 so each chunk's base64 encoding is self-contained (no padding mid-stream).
+    const CHUNK_SIZE = 900_000;
+
+    async function* mimeMessageChunks() {
+      yield textEncoder.encode(header);
+      for (let offset = 0; offset < fileBytes.length; offset += CHUNK_SIZE) {
+        const slice = fileBytes.subarray(offset, offset + CHUNK_SIZE);
+        yield textEncoder.encode(encode(slice));
+      }
+      yield textEncoder.encode(footer);
+    }
+
+    // 5. Send via Gmail upload API, streaming the body chunk by chunk
     const gmailResponse = await fetch('https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${providerToken}`,
         'Content-Type': 'message/rfc822',
       },
-      body: mimeMessage,
+      body: ReadableStream.from(mimeMessageChunks()),
+      // Required by the Fetch spec when streaming a request body.
+      duplex: 'half',
     });
 
     if (!gmailResponse.ok) {

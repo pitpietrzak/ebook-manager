@@ -120,12 +120,14 @@ export default function CollectionsScreen({ navigation }: Props) {
       });
       setIconMap(newMap);
 
-      // 2. For missing ones, trigger AI suggestion (sequentially to avoid overwhelming)
+      // 2. For missing ones, trigger AI suggestion — a few at a time so we don't
+      // serialize dozens of round trips, but still avoid firing them all at once.
       const missing = names.filter(name => !newMap[name] && name !== 'Uncategorised');
-      
-      for (const name of missing) {
+      const CONCURRENCY = 4;
+
+      const suggestIcon = async (name: string) => {
         try {
-          const { data: aiData, error: aiError } = await supabase.functions.invoke('suggest-icon', {
+          const { data: aiData } = await supabase.functions.invoke('suggest-icon', {
             body: { name }
           });
           if (aiData?.icon_name) {
@@ -134,6 +136,10 @@ export default function CollectionsScreen({ navigation }: Props) {
         } catch (e) {
           console.error(`Failed to get icon for ${name}:`, e);
         }
+      };
+
+      for (let i = 0; i < missing.length; i += CONCURRENCY) {
+        await Promise.all(missing.slice(i, i + CONCURRENCY).map(suggestIcon));
       }
     } catch (e) {
       console.warn('Failed to fetch collection icons:', e);

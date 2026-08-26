@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../utils/supabase';
+import { parseSeriesPart } from '../utils/seriesPart';
 
 const { width } = Dimensions.get('window');
 
@@ -102,14 +103,7 @@ export default function SeriesAssignmentModal({
 
   const showSuggestions = seriesNameFocused && !!seriesName.trim();
 
-  const parsedPart = (() => {
-    const normalized = seriesPartRaw.trim().replace(',', '.');
-    const value = Number(normalized);
-    if (!seriesPartRaw.trim()) return null;
-    if (!Number.isFinite(value)) return null;
-    const rounded = Math.round(value * 100) / 100;
-    return rounded > 0 ? rounded : null;
-  })();
+  const parsedPart = parseSeriesPart(seriesPartRaw);
 
   const handleSave = () => {
     onSave({

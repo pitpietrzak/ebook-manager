@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { parseSeriesPart } from '../utils/seriesPart';
 
 type BookEntry = {
   id: string;
@@ -36,15 +37,6 @@ type Props = {
 };
 
 type PartMap = Record<string, string>;
-
-function parsePart(raw: string): number | null {
-  const normalized = raw.trim().replace(',', '.');
-  if (!normalized) return null;
-  const value = Number(normalized);
-  if (!Number.isFinite(value)) return null;
-  const rounded = Math.round(value * 100) / 100;
-  return rounded > 0 ? rounded : null;
-}
 
 export default function FolderSeriesAssignmentModal({
   visible,
@@ -81,7 +73,7 @@ export default function FolderSeriesAssignmentModal({
       seriesName: cleanName,
       assignments: rows.map((book) => ({
         bookId: book.id,
-        seriesPart: parsePart(parts[book.id] || ''),
+        seriesPart: parseSeriesPart(parts[book.id] || ''),
       })),
     });
   };

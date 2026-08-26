@@ -71,7 +71,7 @@ export default function DashboardScreen({ navigation }: Props) {
   const fetchDashboardData = async () => {
     setLoading(true);
 
-    const { data: booksData } = await supabase.from('books').select('*');
+    const { data: booksData } = await supabase.from('books').select('id, folder_tags, series_id');
     const sortedCollections: Collection[] = getSortedCollections((booksData || []) as { folder_tags?: string[] | null }[]);
     setCollections(sortedCollections);
 
@@ -135,9 +135,7 @@ export default function DashboardScreen({ navigation }: Props) {
         .in('id', bookIds);
 
       const { data: reviewers } = await supabase
-        .from('profiles')
-        .select('id, display_name, email')
-        .in('id', reviewerIds);
+        .rpc('get_public_profiles', { profile_ids: reviewerIds });
 
       const bookMap = Object.fromEntries((books || []).map(book => [book.id, book]));
       const reviewerMap = Object.fromEntries((reviewers || []).map((reviewer: any) => [

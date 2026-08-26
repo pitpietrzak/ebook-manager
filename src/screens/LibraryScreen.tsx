@@ -152,9 +152,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
     let profileById = new Map<string, any>();
     if (userIds.length > 0) {
       const { data: profileRows } = await supabase
-        .from('profiles')
-        .select('id, display_name, email')
-        .in('id', userIds);
+        .rpc('get_public_profiles', { profile_ids: userIds });
 
       profileById = new Map((profileRows || []).map((p: any) => [p.id, p]));
     }
@@ -200,58 +198,39 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   const fetchBooks = useCallback(async () => {
     setLoading(true);
-    let tryQuery = supabase
+    let query = supabase
       .from('books')
       .select('*')
       .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false });
-    
+
     if (collectionFilter === '__uncategorised__') {
-      tryQuery = tryQuery.or('folder_tags.is.null,folder_tags.eq.{}');
+      query = query.or('folder_tags.is.null,folder_tags.eq.{}');
     } else if (collectionFilter && !isAllView) {
       const tag = collectionFilter.trim();
-      tryQuery = tryQuery.filter('folder_tags', 'cs', `{"${tag.replace(/"/g, '\\"')}"}`);
+      query = query.filter('folder_tags', 'cs', `{"${tag.replace(/"/g, '\\"')}"}`);
     }
 
-    const { data, error } = await tryQuery;
-    
-    if (!error && data) {
+    const { data, error } = await query;
+
+    if (error) {
+      console.warn('Failed to load books:', error.message);
+      Alert.alert('Error', 'Could not load your library. Please try again.');
+    } else if (data) {
       const booksWithProfiles = await enrichBooksWithRelations(data);
 
       const orderedBooks = !isHomeView ? sortBooksForCollectionView(booksWithProfiles as Book[]) : (booksWithProfiles as Book[]);
       setAllBooks(orderedBooks);
       setDisplayedBooks(orderedBooks);
       if (isHomeView) fetchCollections(orderedBooks);
-    } else {
-      // Fallback (strict filtering)
-      let fallbackQuery = supabase
-        .from('books')
-        .select('*')
-        .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false });
-      if (collectionFilter === '__uncategorised__') {
-        fallbackQuery = fallbackQuery.or('folder_tags.is.null,folder_tags.eq.{}');
-      } else if (collectionFilter && !isAllView) {
-        const tag = collectionFilter.trim();
-        fallbackQuery = fallbackQuery.filter('folder_tags', 'cs', `{"${tag.replace(/"/g, '\\"')}"}`);
-      }
-      
-      const { data: fallbackData } = await fallbackQuery;
-      if (fallbackData) {
-        const enrichedFallback = await enrichBooksWithRelations(fallbackData);
-        const orderedFallback = !isHomeView ? sortBooksForCollectionView(enrichedFallback as Book[]) : (enrichedFallback as Book[]);
-        setAllBooks(orderedFallback);
-        setDisplayedBooks(orderedFallback);
-        if (isHomeView) fetchCollections(orderedFallback);
-      }
     }
-    
+
     setLoading(false);
     setRefreshing(false);
   }, [collectionFilter, isAllView, isHomeView, fetchCollections, enrichBooksWithRelations, sortBooksForCollectionView]);
 
-  useEffect(() => { fetchBooks(); }, [fetchBooks]);
-
+  // fetchBooks already re-runs whenever collectionFilter changes (via the useCallback
+  // dependency below), so a single useFocusEffect covers both mount and screen-focus.
   useFocusEffect(
     useCallback(() => {
       fetchBooks();

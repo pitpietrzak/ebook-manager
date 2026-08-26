@@ -14,6 +14,18 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    // This function is only meant to be called by the DB trigger, which authenticates
+    // with the service role key. Reject any other caller (e.g. a regular authenticated
+    // user) so they can't spoof push notifications with an arbitrary title/body.
+    const authHeader = req.headers.get('Authorization') || '';
+    if (!supabaseServiceKey || authHeader !== `Bearer ${supabaseServiceKey}`) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      });
+    }
+
     const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
     const { record, table, type } = await req.json();

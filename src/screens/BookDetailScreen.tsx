@@ -131,10 +131,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
       const reviewerIds = (ratings || []).map((item: any) => item.user_id);
       const { data: reviewers } = reviewerIds.length
-        ? await supabase
-            .from('profiles')
-            .select('id, display_name, email')
-            .in('id', reviewerIds)
+        ? await supabase.rpc('get_public_profiles', { profile_ids: reviewerIds })
         : { data: [] as any[] };
 
       const reviewerMap = Object.fromEntries((reviewers || []).map((reviewer: any) => [
@@ -223,25 +220,17 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       .single();
 
     if (error) {
-      console.warn('Profile join failed in detail view:', error.message);
-      const { data: fallbackData } = await supabase
-        .from('books')
-        .select('*')
-        .eq('id', bookId)
-        .single();
-      if (fallbackData) setBook(fallbackData);
+      console.warn('Failed to load book details:', error.message);
+      Alert.alert('Error', 'Could not load this book. Please try again.');
     } else if (data) {
       let bookWithProfile = data as any;
       if (data.user_id) {
-        const { data: uploaderProfile } = await supabase
-          .from('profiles')
-          .select('display_name, email')
-          .eq('id', data.user_id)
-          .maybeSingle();
+        const { data: uploaderProfiles } = await supabase
+          .rpc('get_public_profiles', { profile_ids: [data.user_id] });
 
         bookWithProfile = {
           ...data,
-          profiles: uploaderProfile || null,
+          profiles: uploaderProfiles?.[0] || null,
         };
       }
 

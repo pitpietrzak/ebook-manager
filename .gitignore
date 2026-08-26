@@ -17,6 +17,9 @@ android/
 *.key
 *.mobileprovision
 
+# Data exports
+books_rows.json
+
 # Supabase
 .env
 .env.local

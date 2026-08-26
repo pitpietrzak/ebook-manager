@@ -586,19 +586,23 @@ async function resolveHybridBookUrl(options: {
     }
   };
 
+  // The scraper lookup and the AI title lookup are independent, so run them
+  // concurrently instead of one after another.
   if (host === 'goodreads.com') {
-    const scraped = await findBookUrlOnGoodreads(title, author, isbns);
+    const [scraped, titleAiUrl] = await Promise.all([
+      findBookUrlOnGoodreads(title, author, isbns),
+      resolveBookPageUrlWithAi(openAiKey, host, title, titlePl, author, isbns),
+    ]);
     addCandidate(scraped, 'scraper');
-
     addCandidate(isbnAiUrl || '', 'isbn-ai');
-    const titleAiUrl = await resolveBookPageUrlWithAi(openAiKey, host, title, titlePl, author, isbns);
     addCandidate(titleAiUrl, 'title-ai');
   } else {
+    const [titleAiUrl, scraped] = await Promise.all([
+      resolveBookPageUrlWithAi(openAiKey, host, title, titlePl, author, isbns),
+      findBookUrlOnLubimyCzytac(titlePl || title, author, isbns),
+    ]);
     addCandidate(isbnAiUrl || '', 'isbn-ai');
-    const titleAiUrl = await resolveBookPageUrlWithAi(openAiKey, host, title, titlePl, author, isbns);
     addCandidate(titleAiUrl, 'title-ai');
-
-    const scraped = await findBookUrlOnLubimyCzytac(titlePl || title, author, isbns);
     addCandidate(scraped, 'scraper');
   }
 
@@ -1417,17 +1421,20 @@ serve(async (req: Request) => {
       }
     }
 
-    // 2. Resolve ISBN first (if available) to get canonical title/author
+    // 2. Resolve ISBN first (if available) to get canonical title/author.
+    // These two lookups are independent, so run them concurrently.
     const extractedIsbns = fileMeta?.isbns || [];
-    const isbnResolvedMeta = extractedIsbns.length > 0 ? await resolveBookByIsbn(extractedIsbns) : null;
-    const isbnAiResolvedMeta = extractedIsbns.length > 0
-      ? await resolveBookByIsbnWithAi(
-        openAiKey || '',
-        extractedIsbns,
-        fileMeta?.title || normalizedFileTitle,
-        fileMeta?.author || ''
-      )
-      : null;
+    const [isbnResolvedMeta, isbnAiResolvedMeta] = await Promise.all([
+      extractedIsbns.length > 0 ? resolveBookByIsbn(extractedIsbns) : Promise.resolve(null),
+      extractedIsbns.length > 0
+        ? resolveBookByIsbnWithAi(
+          openAiKey || '',
+          extractedIsbns,
+          fileMeta?.title || normalizedFileTitle,
+          fileMeta?.author || ''
+        )
+        : Promise.resolve(null),
+    ]);
     console.log(`[ISBN lookup] extracted: ${extractedIsbns.join(', ') || '(none)'}`);
     console.log(`[ISBN lookup] resolved title: ${isbnResolvedMeta?.title || '(empty)'} author: ${isbnResolvedMeta?.author || '(empty)'}`);
     console.log(`[ISBN AI lookup] resolved title: ${isbnAiResolvedMeta?.title || '(empty)'} goodreads: ${isbnAiResolvedMeta?.goodreads_url || '(empty)'} lubimyczytac: ${isbnAiResolvedMeta?.lubimyczytac_url || '(empty)'}`);
@@ -1450,7 +1457,7 @@ serve(async (req: Request) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'gpt-5.4',
           messages: [
             {
               role: 'system',
@@ -1505,7 +1512,7 @@ Output a JSON object:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'gpt-5.4',
           messages: [
             {
               role: 'system',
@@ -1620,29 +1627,31 @@ Output a single JSON object:
     // 2) title-based AI suggestion
     // 3) HTML scraper suggestion
     // then strict page verification accepts only a matching book.
-    if (hasTrustedLookupIdentity && !lubimyczytac_url) {
-      lubimyczytac_url = await resolveHybridBookUrl({
-        host: 'lubimyczytac.pl',
-        openAiKey: openAiKey || '',
-        title: goodreadsSearchTitle,
-        titlePl: lubimyCzytacSearchTitle,
-        author,
-        isbns: extractedIsbns,
-        isbnAiUrl: isbnAiResolvedMeta?.lubimyczytac_url,
-      });
-    }
-
-    if (hasTrustedLookupIdentity && !goodreads_url) {
-      goodreads_url = await resolveHybridBookUrl({
-        host: 'goodreads.com',
-        openAiKey: openAiKey || '',
-        title: goodreadsSearchTitle,
-        titlePl: lubimyCzytacSearchTitle,
-        author,
-        isbns: extractedIsbns,
-        isbnAiUrl: isbnAiResolvedMeta?.goodreads_url,
-      });
-    }
+    // The two hosts are resolved independently, so look them up concurrently.
+    [lubimyczytac_url, goodreads_url] = await Promise.all([
+      hasTrustedLookupIdentity && !lubimyczytac_url
+        ? resolveHybridBookUrl({
+            host: 'lubimyczytac.pl',
+            openAiKey: openAiKey || '',
+            title: goodreadsSearchTitle,
+            titlePl: lubimyCzytacSearchTitle,
+            author,
+            isbns: extractedIsbns,
+            isbnAiUrl: isbnAiResolvedMeta?.lubimyczytac_url,
+          })
+        : Promise.resolve(lubimyczytac_url),
+      hasTrustedLookupIdentity && !goodreads_url
+        ? resolveHybridBookUrl({
+            host: 'goodreads.com',
+            openAiKey: openAiKey || '',
+            title: goodreadsSearchTitle,
+            titlePl: lubimyCzytacSearchTitle,
+            author,
+            isbns: extractedIsbns,
+            isbnAiUrl: isbnAiResolvedMeta?.goodreads_url,
+          })
+        : Promise.resolve(goodreads_url),
+    ]);
 
     console.log(`[URL lookup] trusted identity: ${hasTrustedLookupIdentity ? 'yes' : 'no'}`);
     console.log(`[URL lookup] final lubimyczytac_url: ${lubimyczytac_url || '(empty)'}`);

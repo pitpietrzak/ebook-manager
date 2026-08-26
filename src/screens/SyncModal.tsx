@@ -161,7 +161,11 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     setSyncProgress({ current: 0, total: 0, status: 'Scanning Google Drive...' });
     try {
       const { data, error } = await withGoogleAccessTokenRetry((token) =>
-        invokeEdgeFunctionWithRetry('sync-drive', {
+        invokeEdgeFunctionWithRetry<{
+          newBooks: any[];
+          movedBooksUpdated: number;
+          deletedBooksCount: number;
+        }>('sync-drive', {
           body: { providerToken: token, sharedFolderId },
         })
       );
@@ -242,30 +246,34 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
 
     setSyncProgress({ current: 0, total: selectedFiles.length, status: 'Processing selected books...' });
 
-    let done = 0;
-    for (const file of selectedFiles) {
-      setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${file.name}` }));
+    try {
+      let done = 0;
+      for (const file of selectedFiles) {
+        setSyncProgress(p => ({ ...p, current: done, status: `Processing: ${file.name}` }));
 
-      const { error: processError } = await withGoogleAccessTokenRetry((providerToken) =>
-        invokeEdgeFunctionWithRetry('process-ebook', {
-          body: {
-            driveFileId: file.id,
-            fileName: file.name,
-            folderTags: tags,
-            driveUploadedAt: file.createdTime || null,
-            providerToken,
-          }
-        })
-      );
+        const { error: processError } = await withGoogleAccessTokenRetry((providerToken) =>
+          invokeEdgeFunctionWithRetry('process-ebook', {
+            body: {
+              driveFileId: file.id,
+              fileName: file.name,
+              folderTags: tags,
+              driveUploadedAt: file.createdTime || null,
+              providerToken,
+            }
+          })
+        );
 
-      if (processError) {
-        throw new Error(processError.message);
+        if (processError) {
+          throw new Error(processError.message);
+        }
+
+        done++;
       }
-
-      done++;
+      setSyncProgress({ current: done, total: done, status: `Done! Added ${done} books ✅` });
+      setTimeout(onSyncComplete, 1500);
+    } catch (e: any) {
+      setSyncProgress({ current: 0, total: 0, status: `Error: ${e.message}` });
     }
-    setSyncProgress({ current: done, total: done, status: `Done! Added ${done} books ✅` });
-    setTimeout(onSyncComplete, 1500);
   };
 
   // ---- Render steps ----

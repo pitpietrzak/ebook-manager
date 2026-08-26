@@ -16,14 +16,24 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { user_id } = await req.json();
-
-    if (!user_id) {
+    // This is called by the client with the caller's own session, not the
+    // service role key, so authenticate the caller and use their own id —
+    // never the user_id from the request body — for the lookups below.
+    // Otherwise any authenticated user could pass someone else's user_id
+    // and read that person's push token / unread notifications.
+    const authClient = createClient(
+      supabaseUrl,
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+    );
+    const { data: { user: caller }, error: authError } = await authClient.auth.getUser();
+    if (authError || !caller) {
       return new Response(
-        JSON.stringify({ error: 'Missing user_id' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    const user_id = caller.id;
 
     // Get user's push token and unread notifications
     const [userRes, notificationsRes] = await Promise.all([

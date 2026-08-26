@@ -24,21 +24,42 @@ function isSupportedBookFile(item: { mimeType?: string; name?: string }): boolea
   );
 }
 
+// Fetch a single folder's direct children, following Drive's pagination
+// (files.list defaults to a max of 100 results per page).
+async function fetchFolderPage(folderId: string, providerToken: string): Promise<any[]> {
+  const query = `'${folderId}' in parents and trashed = false`;
+  const items: any[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      q: query,
+      fields: 'nextPageToken, files(id,name,mimeType,createdTime,owners(emailAddress))',
+      pageSize: '1000',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${providerToken}` }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Drive API Error:", errorText);
+      throw new Error("Failed to fetch from Google Drive");
+    }
+
+    const data = await response.json();
+    items.push(...(data.files || []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return items;
+}
+
 // Recursive function to fetch files from Google Drive
 async function fetchFolderRecursive(folderId: string, currentTags: string[], providerToken: string, allFiles: any[] = []) {
-  const query = `'${folderId}' in parents and trashed = false`;
-  const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,createdTime,owners(emailAddress))`, {
-    headers: { Authorization: `Bearer ${providerToken}` }
-  });
-  
-  if (!response.ok) {
-     const errorText = await response.text();
-     console.error("Drive API Error:", errorText);
-     throw new Error("Failed to fetch from Google Drive");
-  }
-
-  const data = await response.json();
-  const items = data.files || [];
+  const items = await fetchFolderPage(folderId, providerToken);
 
   for (const item of items) {
     if (item.mimeType === 'application/vnd.google-apps.folder') {
@@ -111,7 +132,7 @@ serve(async (req) => {
         let userId = user.id; // Default to current user if owner not found
         
         if (book.ownerEmail) {
-          const { data: ownerProfile } = await supabaseClient
+          const { data: ownerProfile } = await supabaseAdmin
             .from('profiles')
             .select('id')
             .eq('email', book.ownerEmail)
@@ -156,7 +177,7 @@ serve(async (req) => {
       // Look up the owner's user_id for existing books too
       let nextUserId = existing.user_id;
       if (discovered.ownerEmail) {
-        const { data: ownerProfile } = await supabaseClient
+        const { data: ownerProfile } = await supabaseAdmin
           .from('profiles')
           .select('id')
           .eq('email', discovered.ownerEmail)

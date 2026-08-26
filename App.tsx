@@ -20,6 +20,7 @@ import BookDetailScreen from './src/screens/BookDetailScreen';
 type LibraryRouteParams = {
   collectionFilter?: string | null;
   autoFocusSearch?: boolean;
+  initialSearchQuery?: string;
 };
 
 export type RootStackParamList = {
@@ -30,7 +31,7 @@ export type RootStackParamList = {
 
 export type LibraryStackParamList = {
   LibraryHome: LibraryRouteParams | undefined;
-  LibraryCatalog: { collectionFilter: string | null; autoFocusSearch?: boolean };
+  LibraryCatalog: { collectionFilter: string | null; autoFocusSearch?: boolean; initialSearchQuery?: string };
 };
 
 export type TabParamList = {

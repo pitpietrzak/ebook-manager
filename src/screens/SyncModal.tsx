@@ -7,10 +7,10 @@ import { supabase } from '../utils/supabase';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
-import { 
-  RefreshCw, Folder, FileText, BookOpen, Check, 
+import {
+  RefreshCw, Folder, FileText, BookOpen, Check,
   ChevronRight, ChevronLeft, X, Layers, Settings,
-  Database, HardDrive, CheckCircle2
+  Database, HardDrive, CheckCircle2, XCircle
 } from 'lucide-react-native';
 
 type Props = {
@@ -440,14 +440,30 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
     </View>
   );
 
+  const syncFailed = syncProgress.status.startsWith('Error:');
+
   const renderSyncingStep = () => (
     <View style={[styles.stepContainer, { alignItems: 'center' }]}>
-      <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 20 }} />
-      <Text style={styles.stepTitle}>Syncing...</Text>
-      {syncProgress.total > 0 && (
+      {syncFailed ? (
+        <XCircle size={48} color={colors.accent} style={{ marginBottom: 16 }} />
+      ) : (
+        <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 20 }} />
+      )}
+      <Text style={styles.stepTitle}>{syncFailed ? 'Sync Failed' : 'Syncing...'}</Text>
+      {!syncFailed && syncProgress.total > 0 && (
         <Text style={styles.progressText}>{syncProgress.current} / {syncProgress.total}</Text>
       )}
-      <Text style={styles.statusText}>{syncProgress.status}</Text>
+      <Text style={[styles.statusText, syncFailed && styles.statusTextError]}>{syncProgress.status}</Text>
+      {syncFailed && (
+        <View style={styles.browseFooter}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={handleClose}>
+            <Text style={styles.cancelBtnText}>Close</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setStep('mode')}>
+            <Text style={styles.primaryBtnText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 
@@ -555,4 +571,5 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   progressText: { fontSize: 48, fontWeight: '800', color: colors.primary, marginBottom: 12 },
   statusText: { fontSize: 16, color: colors.textSecondary, textAlign: 'center', marginTop: 12, fontWeight: '500' },
+  statusTextError: { color: colors.accent, fontWeight: '700', marginBottom: 8 },
 });

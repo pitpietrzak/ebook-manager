@@ -14,9 +14,9 @@ import { assignBookSeries } from '../utils/series';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
-import { 
+import {
   Star, User, ChevronLeft, ChevronDown, ChevronUp,
-  ExternalLink, Languages, Mail, CheckCircle2
+  ExternalLink, Languages, Mail, CheckCircle2, Clock
 } from 'lucide-react-native';
 
 type Props = {
@@ -553,7 +553,12 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         <View style={styles.metaRow}>
           {profile?.is_admin && (
             <View style={[styles.verificationBadge, book.verified ? styles.verificationBadgeVerified : styles.verificationBadgePending]}>
-              <CheckCircle2 size={16} color={book.verified ? '#1B5E20' : '#8D6E00'} />
+              {book.verified
+                ? <CheckCircle2 size={16} color="#1B5E20" />
+                : <Clock size={16} color="#8D6E00" />}
+              <Text style={[styles.verificationBadgeText, { color: book.verified ? '#1B5E20' : '#8D6E00' }]}>
+                {book.verified ? 'Verified' : 'Pending Review'}
+              </Text>
             </View>
           )}
 
@@ -649,9 +654,18 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             </View>
           )}
           {book.moods?.map((mood, idx) => (
-            <View key={idx} style={styles.tag}>
+            <TouchableOpacity
+              key={idx}
+              style={styles.tag}
+              onPress={() => navigation.navigate('Main' as any, {
+                screen: 'Library',
+                params: { screen: 'LibraryHome', params: { initialSearchQuery: mood } },
+              })}
+              accessibilityRole="button"
+              accessibilityLabel={`Find more books with mood: ${mood}`}
+            >
               <Text style={styles.tagText}>{mood}</Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -669,8 +683,21 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         <Text style={styles.description}>{displayDescription}</Text>
 
         <View style={styles.actions}>
-          <TouchableOpacity 
-            style={styles.secondaryButton} 
+          {book.drive_file_id && (
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => handleOpenExternalUrl(
+                `https://drive.google.com/file/d/${book.drive_file_id}/view`,
+                'Google Drive'
+              )}
+            >
+              <ExternalLink size={20} color={colors.accent} style={{ marginRight: 10 }} />
+              <Text style={styles.secondaryButtonText}>Open in Drive</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
             onPress={handleSendToKindle}
             disabled={sendingEmail}
           >
@@ -921,7 +948,9 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 6,
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 20,
   },
   verificationBadgeVerified: {
@@ -929,6 +958,10 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   verificationBadgePending: {
     backgroundColor: '#FFF8E1',
+  },
+  verificationBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   uploaderRow: {
     flexDirection: 'row', alignItems: 'center',

@@ -12,7 +12,8 @@ import { supabase } from '../utils/supabase';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import DynamicIcon from '../components/DynamicIcon';
-import { LayoutGrid, List as ListIcon, Star, MessageCircle, CheckCircle2, BookOpen } from 'lucide-react-native';
+import ActivityModal from '../components/ActivityModal';
+import { LayoutGrid, List as ListIcon, Star, MessageCircle, CheckCircle2, BookOpen, Clock, Bell } from 'lucide-react-native';
 
 type Props = {
   navigation: CompositeNavigationProp<
@@ -59,6 +60,8 @@ export default function DashboardScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [currentTab, setCurrentTab] = useState<'collections' | 'series'>('collections');
+  const [activityVisible, setActivityVisible] = useState(false);
+  const [hasUnreadActivity, setHasUnreadActivity] = useState(false);
   const { colors, isDark } = useTheme();
   const { profile } = useProfile();
   const styles = getStyles(colors, isDark);
@@ -66,7 +69,20 @@ export default function DashboardScreen({ navigation }: Props) {
 
   useEffect(() => {
     fetchDashboardData();
+    fetchUnreadActivity();
   }, []);
+
+  const fetchUnreadActivity = async () => {
+    try {
+      const { count } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_read', false);
+      setHasUnreadActivity(!!count);
+    } catch (e) {
+      console.warn('Unread activity fetch failed:', e);
+    }
+  };
 
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -187,7 +203,7 @@ export default function DashboardScreen({ navigation }: Props) {
       <TouchableOpacity
         style={viewMode === 'grid' ? styles.gridCard : styles.listCard}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('Library', { screen: 'LibraryCatalog', params: { collectionFilter: '__all__' } })}
+        onPress={() => navigation.navigate('Library', { screen: 'LibraryCatalog', params: { collectionFilter: `__series__:${item.id}` } })}
       >
         <View style={[viewMode === 'grid' ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}> 
           <DynamicIcon name="Library" size={viewMode === 'grid' ? 28 : 22} color={color} />
@@ -206,6 +222,15 @@ export default function DashboardScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Dashboard</Text>
+          <TouchableOpacity
+            style={styles.bellBtn}
+            onPress={() => setActivityVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Family activity"
+          >
+            <Bell size={22} color={colors.text} />
+            {hasUnreadActivity && <View style={styles.bellDot} />}
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionTitle}>Most Recent Books</Text>
@@ -223,8 +248,13 @@ export default function DashboardScreen({ navigation }: Props) {
               <Text style={styles.recentBookTitle} numberOfLines={1}>{book.title}</Text>
               <Text style={styles.recentBookAuthor} numberOfLines={1}>{book.author}</Text>
               {profile?.is_admin && (
-                <View style={[styles.smallVerifiedPill, book.verified ? styles.smallVerifiedPillOk : styles.smallVerifiedPillPending]}>
-                  <CheckCircle2 size={12} color={book.verified ? '#1B5E20' : '#8D6E00'} />
+                <View
+                  style={[styles.smallVerifiedPill, book.verified ? styles.smallVerifiedPillOk : styles.smallVerifiedPillPending]}
+                  accessibilityLabel={book.verified ? 'Verified' : 'Pending review'}
+                >
+                  {book.verified
+                    ? <CheckCircle2 size={12} color="#1B5E20" />
+                    : <Clock size={12} color="#8D6E00" />}
                 </View>
               )}
             </TouchableOpacity>
@@ -373,6 +403,11 @@ export default function DashboardScreen({ navigation }: Props) {
         )}
       </ScrollView>
       {loading && <View style={styles.loadingOverlay}><ActivityIndicator size="large" color={colors.primary} /></View>}
+      <ActivityModal
+        visible={activityVisible}
+        onClose={() => { setActivityVisible(false); fetchUnreadActivity(); }}
+        onSelectBook={(bookId) => navigation.navigate('BookDetail', { bookId })}
+      />
     </SafeAreaView>
   );
 }
@@ -381,6 +416,16 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 24, paddingBottom: 8 },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: colors.text },
+  bellBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bellDot: {
+    position: 'absolute', top: 8, right: 9,
+    width: 9, height: 9, borderRadius: 5,
+    backgroundColor: colors.accent,
+    borderWidth: 1.5, borderColor: colors.background,
+  },
   toggleRow: { flexDirection: 'row', gap: 8 },
   toggleBtn: { padding: 8, borderRadius: 10 },
   toggleActive: { backgroundColor: colors.primary + '11' },

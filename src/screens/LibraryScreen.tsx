@@ -16,10 +16,10 @@ import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
-import { 
-  Search, Plus, Sparkles, Inbox, Book as BookIcon, 
+import {
+  Search, Plus, Sparkles, Inbox, Book as BookIcon,
   ChevronRight, Filter, Clock, RefreshCw, Folder as FolderIcon,
-  ChevronLeft, CheckCircle2, LayoutGrid, List as ListIcon
+  ChevronLeft, CheckCircle2, LayoutGrid, List as ListIcon, MoreVertical
 } from 'lucide-react-native';
 import SyncModal from './SyncModal';
 import DynamicIcon from '../components/DynamicIcon';
@@ -68,9 +68,12 @@ type FolderSeriesBook = {
 
 const COLLECTION_COLORS = ['#8B5CF6', '#D946EF', '#F43F5E', '#6366F1', '#EC4899', '#3B82F6', '#06B6D4', '#10B981'];
 
+const SERIES_FILTER_PREFIX = '__series__:';
+
 export default function LibraryScreen({ navigation, route }: Props) {
   const collectionFilter = route.params?.collectionFilter ?? null;
   const autoFocusSearch = route.params?.autoFocusSearch ?? false;
+  const initialSearchQuery = route.params?.initialSearchQuery;
 
   const [allBooks, setAllBooks] = useState<Book[]>([]);
   const [displayedBooks, setDisplayedBooks] = useState<Book[]>([]);
@@ -106,6 +109,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
       }, 100);
     }
   }, [autoFocusSearch]);
+
+  useEffect(() => {
+    if (initialSearchQuery) {
+      setAiSearchMode(false);
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
 
   const fetchCollections = useCallback(async (books: Book[]) => {
     const sorted = getSortedCollections(books);
@@ -187,6 +197,8 @@ export default function LibraryScreen({ navigation, route }: Props) {
 // Handle special cases for collectionFilter
   const isAllView = collectionFilter === '__all__';
   const isHomeView = collectionFilter === null;
+  const isSeriesView = collectionFilter?.startsWith(SERIES_FILTER_PREFIX) ?? false;
+  const seriesId = isSeriesView ? collectionFilter!.slice(SERIES_FILTER_PREFIX.length) : null;
 
   const openLibraryHome = () => {
     navigation.navigate('LibraryHome', { collectionFilter: null });
@@ -204,7 +216,9 @@ export default function LibraryScreen({ navigation, route }: Props) {
       .order('drive_uploaded_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false });
 
-    if (collectionFilter === '__uncategorised__') {
+    if (seriesId) {
+      query = query.eq('series_id', seriesId);
+    } else if (collectionFilter === '__uncategorised__') {
       query = query.or('folder_tags.is.null,folder_tags.eq.{}');
     } else if (collectionFilter && !isAllView) {
       const tag = collectionFilter.trim();
@@ -227,7 +241,18 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
     setLoading(false);
     setRefreshing(false);
-  }, [collectionFilter, isAllView, isHomeView, fetchCollections, enrichBooksWithRelations, sortBooksForCollectionView]);
+  }, [collectionFilter, isAllView, isHomeView, seriesId, fetchCollections, enrichBooksWithRelations, sortBooksForCollectionView]);
+
+  // Human-readable label for whatever collectionFilter currently is, for the
+  // breadcrumb and empty state. Series names aren't known until the filtered
+  // books load, so fall back to a generic label until then.
+  const filterDisplayName = isAllView
+    ? 'All Books'
+    : collectionFilter === '__uncategorised__'
+      ? 'Uncategorised'
+      : isSeriesView
+        ? (allBooks[0]?.series?.name || 'Series')
+        : collectionFilter;
 
   // fetchBooks already re-runs whenever collectionFilter changes (via the useCallback
   // dependency below), so a single useFocusEffect covers both mount and screen-focus.
@@ -371,44 +396,49 @@ export default function LibraryScreen({ navigation, route }: Props) {
   // Hide books on home explorer view unless searching or AI results exist
   const booksToShow = (isHomeView && !searchQuery && !aiResults) ? [] : (aiResults ?? displayedBooks);
 
+  const hasFolderActions = (name: string) => name !== 'All Books' && name !== 'Uncategorised';
+
+  const openFolderActionsMenu = (item: { name: string, count: number }, index: number) => {
+    if (!hasFolderActions(item.name)) return;
+
+    Alert.alert('Folder Actions', `Choose action for "${item.name}"`, [
+      {
+        text: 'Set Icon',
+        onPress: () => {
+          setEditingCollection({ name: item.name, index });
+          setPickerVisible(true);
+        },
+      },
+      {
+        text: 'Set Series for All Books',
+        onPress: () => {
+          openFolderSeriesModal(item.name);
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const renderCollectionItem = ({ item, index }: { item: { name: string, count: number }, index: number }) => {
     const isGrid = viewMode === 'grid';
     const color = item.name === 'All Books' ? colors.primary : COLLECTION_COLORS[index % COLLECTION_COLORS.length];
-    
+    const showMenu = hasFolderActions(item.name);
+
     return (
       <TouchableOpacity
         style={isGrid ? styles.gridCard : styles.listCard}
         onPress={() => openCollection(
           item.name === 'All Books' ? '__all__' : (item.name === 'Uncategorised' ? '__uncategorised__' : item.name)
         )}
-        onLongPress={() => {
-          if (item.name === 'All Books' || item.name === 'Uncategorised') return;
-
-          Alert.alert('Folder Actions', `Choose action for "${item.name}"`, [
-            {
-              text: 'Set Icon',
-              onPress: () => {
-                setEditingCollection({ name: item.name, index });
-                setPickerVisible(true);
-              },
-            },
-            {
-              text: 'Set Series for All Books',
-              onPress: () => {
-                openFolderSeriesModal(item.name);
-              },
-            },
-            { text: 'Cancel', style: 'cancel' },
-          ]);
-        }}
+        onLongPress={() => openFolderActionsMenu(item, index)}
         delayLongPress={300}
         activeOpacity={0.7}
       >
         <View style={[isGrid ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}>
-          <DynamicIcon 
-            name={item.name === 'All Books' ? 'Library' : (item.name === 'Uncategorised' ? 'Layers' : iconMap[item.name] || 'Layers')} 
-            size={isGrid ? 28 : 22} 
-            color={color} 
+          <DynamicIcon
+            name={item.name === 'All Books' ? 'Library' : (item.name === 'Uncategorised' ? 'Layers' : iconMap[item.name] || 'Layers')}
+            size={isGrid ? 28 : 22}
+            color={color}
           />
         </View>
         <View style={!isGrid && { flex: 1 }}>
@@ -417,9 +447,26 @@ export default function LibraryScreen({ navigation, route }: Props) {
             {item.count} {item.count === 1 ? 'book' : 'books'}
           </Text>
         </View>
-        {!isGrid && <ChevronRight size={18} color={colors.border} />}
+        {showMenu && (
+          <TouchableOpacity
+            style={isGrid ? styles.folderMenuBtn : styles.folderMenuBtnList}
+            onPress={() => openFolderActionsMenu(item, index)}
+            accessibilityRole="button"
+            accessibilityLabel={`More actions for ${item.name}`}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MoreVertical size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+        {!isGrid && !showMenu && <ChevronRight size={18} color={colors.border} />}
       </TouchableOpacity>
     );
+  };
+
+  const filterByMood = (mood: string) => {
+    setAiSearchMode(false);
+    setAiResults(null);
+    setSearchQuery(mood);
   };
 
   const renderBook = ({ item }: { item: Book }) => {
@@ -438,8 +485,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
             <View style={styles.bookTitleRow}>
               <Text style={styles.bookTitle} numberOfLines={1}>{item.title}</Text>
               {profile?.is_admin && (
-                <View style={[styles.bookVerifiedPill, item.verified ? styles.bookVerifiedPillOk : styles.bookVerifiedPillPending]}>
-                  <CheckCircle2 size={14} color={item.verified ? '#1B5E20' : '#8D6E00'} />
+                <View
+                  style={[styles.bookVerifiedPill, item.verified ? styles.bookVerifiedPillOk : styles.bookVerifiedPillPending]}
+                  accessibilityLabel={item.verified ? 'Verified' : 'Pending review'}
+                >
+                  {item.verified
+                    ? <CheckCircle2 size={14} color="#1B5E20" />
+                    : <Clock size={14} color="#8D6E00" />}
                 </View>
               )}
             </View>
@@ -459,9 +511,15 @@ export default function LibraryScreen({ navigation, route }: Props) {
             {item.moods?.length > 0 && (
               <View style={styles.moodRow}>
                 {item.moods.slice(0, 2).map(m => (
-                  <View key={m} style={styles.moodChip}>
+                  <TouchableOpacity
+                    key={m}
+                    style={styles.moodChip}
+                    onPress={() => filterByMood(m)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Filter by mood: ${m}`}
+                  >
                     <Text style={styles.moodChipText}>{m}</Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             )}
@@ -524,7 +582,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
           <>
             <ChevronRight size={14} color={colors.textSecondary} style={{ marginHorizontal: 4 }} />
             <Text style={[styles.breadcrumbText, styles.breadcrumbActive]}>
-              {isAllView ? 'All Books' : (collectionFilter === '__uncategorised__' ? 'Uncategorised' : collectionFilter)}
+              {filterDisplayName}
             </Text>
           </>
         )}
@@ -606,7 +664,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
                       ? 'Your library is completely empty' 
                       : isAllView
                         ? 'No books found in your library'
-                        : `No books found in "${collectionFilter === '__uncategorised__' ? 'Uncategorised' : collectionFilter}"`
+                        : `No books found in "${filterDisplayName}"`
                   }
                 </Text>
                 {collectionFilter && !searchQuery && (
@@ -630,7 +688,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
       <TouchableOpacity
         style={[styles.fab, isUploading && { backgroundColor: '#AAA' }]}
-        onPress={() => startUpload(collectionFilter)}
+        onPress={() => startUpload(isSeriesView ? null : collectionFilter)}
         disabled={isUploading}
       >
         {isUploading ? <ActivityIndicator color="#fff" /> : <Plus size={32} color="#fff" />}
@@ -801,6 +859,24 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   listName: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 2 },
   listCount: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  folderMenuBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  folderMenuBtnList: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
   bookCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 16,
     marginBottom: 12, padding: 12,

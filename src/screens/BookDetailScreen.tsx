@@ -11,6 +11,7 @@ import { getValidGoogleAccessToken, isGoogleAuthError } from '../utils/googleAut
 import { moveDriveFileToFolder } from '../utils/drive';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import { assignBookSeries } from '../utils/series';
+import { setBookReadState } from '../utils/bookReads';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { StatusBar } from 'react-native';
@@ -65,6 +66,9 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   const [avgRating, setAvgRating] = useState<number | null>(null);
   const [ratingCount, setRatingCount] = useState(0);
   const [savingReview, setSavingReview] = useState(false);
+  const [savingRating, setSavingRating] = useState(false);
+  const [isRead, setIsRead] = useState(false);
+  const [savingRead, setSavingRead] = useState(false);
   const [reviewExpanded, setReviewExpanded] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [reportLinkType, setReportLinkType] = useState<'goodreads' | 'lubimyczytac' | null>(null);
@@ -84,7 +88,48 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   useEffect(() => {
     fetchBookDetails();
     fetchRatings();
+    fetchReadStatus();
   }, [bookId]);
+
+  const fetchReadStatus = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('book_reads')
+        .select('id')
+        .eq('book_id', bookId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      setIsRead(!!data);
+    } catch (e) {
+      console.warn('Read status fetch failed:', e);
+    }
+  };
+
+  const handleToggleRead = async () => {
+    const previousIsRead = isRead;
+    const nextIsRead = !isRead;
+    setIsRead(nextIsRead);
+    setSavingRead(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsRead(previousIsRead);
+        Alert.alert('Login required', 'Please log in to track read books.');
+        return;
+      }
+
+      await setBookReadState(user.id, bookId, nextIsRead);
+    } catch (e: any) {
+      setIsRead(previousIsRead);
+      Alert.alert('Error', e.message || 'Could not update read status.');
+    } finally {
+      setSavingRead(false);
+    }
+  };
 
   const fetchRatings = async () => {
     try {
@@ -154,9 +199,16 @@ export default function BookDetailScreen({ navigation, route }: Props) {
   };
 
   const handleRate = async (rating: number) => {
+    // Tapping a star used to give no feedback at all until the network
+    // request resolved, which made it look unresponsive. Update optimistically
+    // and show a small spinner while the upsert is in flight, reverting on error.
+    const previousRating = userRating;
+    setUserRating(rating);
+    setSavingRating(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
+        setUserRating(previousRating);
         Alert.alert('Login required', 'Please log in to rate books.');
         return;
       }
@@ -171,10 +223,12 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         }, { onConflict: 'user_id,book_id' });
 
       if (error) throw error;
-      setUserRating(rating);
       fetchRatings();
     } catch (e: any) {
+      setUserRating(previousRating);
       Alert.alert('Error', e.message);
+    } finally {
+      setSavingRating(false);
     }
   };
 
@@ -605,14 +659,17 @@ export default function BookDetailScreen({ navigation, route }: Props) {
             <>
               <View style={styles.stars}>
                 {[1, 2, 3, 4, 5].map((s) => (
-                  <TouchableOpacity key={s} onPress={() => handleRate(s)}>
-                    <Star 
-                      size={24} 
-                      fill={s <= (userRating || 0) ? '#FFD700' : 'transparent'} 
-                      color={s <= (userRating || 0) ? '#FFD700' : isDark ? '#3A2552' : '#DDD'} 
+                  <TouchableOpacity key={s} onPress={() => handleRate(s)} disabled={savingRating}>
+                    <Star
+                      size={24}
+                      fill={s <= (userRating || 0) ? '#FFD700' : 'transparent'}
+                      color={s <= (userRating || 0) ? '#FFD700' : isDark ? '#3A2552' : '#DDD'}
                     />
                   </TouchableOpacity>
                 ))}
+                {savingRating && (
+                  <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 8 }} />
+                )}
               </View>
 
               <TextInput
@@ -630,6 +687,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
                 onPress={handleSaveReview}
                 disabled={savingReview}
               >
+                {savingReview && <ActivityIndicator size="small" color="#fff" />}
                 <Text style={styles.saveReviewText}>{savingReview ? 'Saving...' : 'Save rating & note'}</Text>
               </TouchableOpacity>
             </>
@@ -683,6 +741,21 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         <Text style={styles.description}>{displayDescription}</Text>
 
         <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.secondaryButton, isRead && styles.secondaryButtonActive]}
+            onPress={handleToggleRead}
+            disabled={savingRead}
+          >
+            {savingRead ? (
+              <ActivityIndicator size="small" color={isRead ? '#fff' : colors.accent} style={{ marginRight: 10 }} />
+            ) : (
+              <CheckCircle2 size={20} color={isRead ? '#fff' : colors.accent} style={{ marginRight: 10 }} />
+            )}
+            <Text style={[styles.secondaryButtonText, isRead && styles.secondaryButtonTextActive]}>
+              {isRead ? 'Read' : 'Mark as Read'}
+            </Text>
+          </TouchableOpacity>
+
           {book.drive_file_id && (
             <TouchableOpacity
               style={styles.secondaryButton}
@@ -1036,6 +1109,9 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 14,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
   },
   saveReviewText: {
     color: '#fff',
@@ -1116,6 +1192,13 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     color: colors.accent,
     fontSize: 17,
     fontWeight: 'bold',
+  },
+  secondaryButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  secondaryButtonTextActive: {
+    color: '#fff',
   },
   linkRows: {
     marginTop: 8,

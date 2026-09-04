@@ -25,6 +25,7 @@ import SyncModal from './SyncModal';
 import DynamicIcon from '../components/DynamicIcon';
 import IconPickerModal from '../components/IconPickerModal';
 import { getSortedCollections } from '../utils/collections';
+import { fetchReadBookIds } from '../utils/bookReads';
 import FolderSeriesAssignmentModal from '../components/FolderSeriesAssignmentModal';
 import { assignBooksSeriesParts } from '../utils/series';
 
@@ -77,6 +78,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   const [allBooks, setAllBooks] = useState<Book[]>([]);
   const [displayedBooks, setDisplayedBooks] = useState<Book[]>([]);
+  const [readBookIds, setReadBookIds] = useState<Set<string>>(new Set());
   const [collections, setCollections] = useState<{name: string, count: number}[]>([]);
   const [iconMap, setIconMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -101,6 +103,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<TextInput>(null);
+  const hasLoadedOnceRef = useRef(false);
 
   useEffect(() => {
     if (autoFocusSearch) {
@@ -209,7 +212,13 @@ export default function LibraryScreen({ navigation, route }: Props) {
   };
 
   const fetchBooks = useCallback(async () => {
-    setLoading(true);
+    // Only show the full-screen spinner on the very first load for this
+    // screen. Re-fetching on every focus (e.g. returning from BookDetail)
+    // used to swap the FlatList out for a spinner and back, which threw
+    // away its scroll position — refetch silently instead.
+    if (!hasLoadedOnceRef.current) {
+      setLoading(true);
+    }
     let query = supabase
       .from('books')
       .select('*')
@@ -225,7 +234,12 @@ export default function LibraryScreen({ navigation, route }: Props) {
       query = query.filter('folder_tags', 'cs', `{"${tag.replace(/"/g, '\\"')}"}`);
     }
 
-    const { data, error } = await query;
+    const [{ data, error }, readIds] = await Promise.all([
+      query,
+      profile?.id ? fetchReadBookIds(profile.id) : Promise.resolve(new Set<string>()),
+    ]);
+
+    setReadBookIds(readIds);
 
     if (error) {
       console.warn('Failed to load books:', error.message);
@@ -239,9 +253,10 @@ export default function LibraryScreen({ navigation, route }: Props) {
       if (isHomeView) fetchCollections(orderedBooks);
     }
 
+    hasLoadedOnceRef.current = true;
     setLoading(false);
     setRefreshing(false);
-  }, [collectionFilter, isAllView, isHomeView, seriesId, fetchCollections, enrichBooksWithRelations, sortBooksForCollectionView]);
+  }, [collectionFilter, isAllView, isHomeView, seriesId, profile?.id, fetchCollections, enrichBooksWithRelations, sortBooksForCollectionView]);
 
   // Human-readable label for whatever collectionFilter currently is, for the
   // breadcrumb and empty state. Series names aren't known until the filtered
@@ -479,6 +494,11 @@ export default function LibraryScreen({ navigation, route }: Props) {
         <View style={styles.bookCover}>
           <BookIcon size={24} color={colors.primary} />
           <Text style={styles.bookCoverInitial}>{item.title?.[0]}</Text>
+          {readBookIds.has(item.id) && (
+            <View style={styles.readBadge} accessibilityLabel="Read">
+              <CheckCircle2 size={14} color="#fff" />
+            </View>
+          )}
         </View>
         <View style={styles.bookInfo}>
           <View>
@@ -889,9 +909,16 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', marginRight: 14,
     position: 'relative',
   },
-  bookCoverInitial: { 
+  bookCoverInitial: {
     position: 'absolute', bottom: 4, right: 6,
-    fontSize: 12, fontWeight: '900', color: colors.primary, opacity: 0.3 
+    fontSize: 12, fontWeight: '900', color: colors.primary, opacity: 0.3
+  },
+  readBadge: {
+    position: 'absolute', top: -6, left: -6,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: '#2E7D32',
+    borderWidth: 2, borderColor: colors.card,
+    justifyContent: 'center', alignItems: 'center',
   },
   bookInfo: { flex: 1, minHeight: 80, justifyContent: 'space-between' },
   bookTitleRow: {

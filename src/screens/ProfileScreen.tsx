@@ -49,6 +49,7 @@ export default function ProfileScreen() {
     defaultValue: string;
     type: 'name' | 'kindle';
   } | null>(null);
+  const [readCount, setReadCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (profile?.is_admin) {
@@ -56,6 +57,24 @@ export default function ProfileScreen() {
       fetchPendingReports();
     }
   }, [profile?.is_admin]);
+
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const fetchReadCount = async () => {
+      try {
+        const { count } = await supabase
+          .from('book_reads')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', profile.id);
+        setReadCount(count ?? 0);
+      } catch (e) {
+        console.warn('Read count fetch failed:', e);
+      }
+    };
+
+    fetchReadCount();
+  }, [profile?.id]);
 
   const fetchUnverifiedBooks = async () => {
     try {
@@ -203,6 +222,14 @@ export default function ProfileScreen() {
           </View>
           <Text style={styles.name}>{profile?.display_name || 'Generic Sloth'}</Text>
           <Text style={styles.email} numberOfLines={1} ellipsizeMode="tail">{profile?.email}</Text>
+          {readCount !== null && (
+            <View style={styles.readStatPill}>
+              <CheckCircle2 size={14} color={colors.primary} />
+              <Text style={styles.readStatText}>
+                {readCount} {readCount === 1 ? 'book' : 'books'} read
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -462,6 +489,14 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   },
   email: {
     fontSize: 14, color: colors.textSecondary,
+  },
+  readStatPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 10, paddingVertical: 6, paddingHorizontal: 12,
+    borderRadius: 16, backgroundColor: colors.primary + '15',
+  },
+  readStatText: {
+    fontSize: 13, fontWeight: '700', color: colors.primary,
   },
   section: {
     marginBottom: 24,

@@ -1,16 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
-import * as Linking from 'expo-linking';
-import { getSupabaseConfigError, supabase } from '../utils/supabase';
-import { saveGoogleAuth } from '../utils/googleAuth';
+import { connectGoogleAccount } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
 
 import { LogIn } from 'lucide-react-native';
-
-WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
@@ -18,116 +12,9 @@ export default function LoginScreen() {
   const styles = getStyles(colors, isDark);
 
   const handleGoogleLogin = async () => {
-    // ... logic remains same ...
     try {
       setLoading(true);
-
-      const configError = getSupabaseConfigError();
-      if (configError) {
-        throw new Error(`${configError}. Check your .env and restart Expo.`);
-      }
-
-      const googleClientId = (process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
-      if (!googleClientId.endsWith('.apps.googleusercontent.com')) {
-        throw new Error('EXPO_PUBLIC_GOOGLE_CLIENT_ID must be a Google OAuth Client ID ending with .apps.googleusercontent.com');
-      }
-
-      const authSessionUri = AuthSession.makeRedirectUri({ path: 'auth' });
-      const linkingUri = Linking.createURL('auth');
-      console.log('[Login] authSessionUri:', authSessionUri);
-      console.log('[Login] linkingUri:', linkingUri);
-
-      // Always use the app's custom scheme — never exp:// (Expo Go)
-      // exp:// cannot handle deep link callbacks on device
-      const APP_SCHEME = 'ebooklibrary';
-      let redirectUri: string;
-      if (authSessionUri.startsWith(`${APP_SCHEME}://`)) {
-        redirectUri = authSessionUri;
-      } else if (linkingUri.startsWith(`${APP_SCHEME}://`)) {
-        redirectUri = linkingUri;
-      } else {
-        // Fallback: construct directly from scheme
-        redirectUri = `${APP_SCHEME}://auth`;
-        console.warn('[Login] Neither URI uses app scheme, falling back to:', redirectUri);
-      }
-      console.log('[Login] Using redirectUri:', redirectUri);
-      
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          skipBrowserRedirect: true,
-          redirectTo: redirectUri,
-          queryParams: {
-            access_type: 'offline', 
-            prompt: 'consent',
-          },
-          scopes: 'openid profile email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.send',
-        },
-      });
-
-      if (error) {
-        Alert.alert('Error', error.message);
-        setLoading(false);
-        return;
-      }
-
-      if (data?.url) {
-        let authUrl: URL;
-        try {
-          authUrl = new URL(data.url);
-        } catch {
-          throw new Error('Generated OAuth URL is invalid. Verify EXPO_PUBLIC_SUPABASE_URL and Auth settings.');
-        }
-
-        if (!['https:', 'http:'].includes(authUrl.protocol)) {
-          throw new Error('Generated OAuth URL has an unsupported protocol.');
-        }
-
-        if (authUrl.toString().includes('undefined')) {
-          throw new Error('Generated OAuth URL contains invalid parameters. Check Supabase Auth settings.');
-        }
-
-        const result = await WebBrowser.openAuthSessionAsync(authUrl.toString(), redirectUri);
-        
-        if (result.type === 'success') {
-          const { url } = result;
-          const hashMatches = url.match(/#(.*)$/);
-          if (hashMatches) {
-            const params = new URLSearchParams(hashMatches[1]);
-            const access_token = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-            const provider_token = params.get('provider_token');
-            const provider_refresh_token = params.get('provider_refresh_token');
-            const expires_in = Number(params.get('expires_in') || '3300');
-
-            if (provider_token && !provider_refresh_token) {
-              Alert.alert(
-                'Google OAuth setup issue',
-                'Login succeeded, but Google refresh token was not returned. In Supabase Auth > Providers > Google, ensure offline access is enabled and re-consent with prompt=consent.'
-              );
-            }
-            
-            if (provider_token) {
-              await saveGoogleAuth(provider_token, expires_in, provider_refresh_token);
-            }
-            
-            if (access_token && refresh_token) {
-              const { error: sessionError } = await supabase.auth.setSession({
-                access_token,
-                refresh_token,
-              });
-              
-              if (sessionError) {
-                 Alert.alert('Session Error', sessionError.message);
-              }
-            }
-          }
-        }
-      }
-
-      if (!data?.url) {
-        throw new Error('Supabase did not return an OAuth URL.');
-      }
+      await connectGoogleAccount();
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {

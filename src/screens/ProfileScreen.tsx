@@ -5,9 +5,10 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
 import { supabase } from '../utils/supabase';
 import { clearGoogleAuth } from '../utils/googleAuth';
-import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail, Download, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { User, LogOut, Moon, Sun, Edit3, Bell, Shield, LayoutGrid, List, Mail, Download, CheckCircle2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react-native';
 import InputModal from '../components/InputModal';
 import { useVersion } from '../contexts/VersionContext';
+import { connectGoogleAccount } from '../utils/googleAuth';
 
 type PendingLinkReport = {
   id: string;
@@ -50,6 +51,7 @@ export default function ProfileScreen() {
     type: 'name' | 'kindle';
   } | null>(null);
   const [readCount, setReadCount] = useState<number | null>(null);
+  const [reconnectingGoogle, setReconnectingGoogle] = useState(false);
 
   useEffect(() => {
     if (profile?.is_admin) {
@@ -178,6 +180,20 @@ export default function ProfileScreen() {
     if (error) Alert.alert('Error', error.message);
   };
 
+  const handleReconnectGoogle = async () => {
+    try {
+      setReconnectingGoogle(true);
+      const completed = await connectGoogleAccount();
+      if (completed) {
+        Alert.alert('Connected', 'Google Drive access has been refreshed.');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setReconnectingGoogle(false);
+    }
+  };
+
   const handleEditName = () => {
     setModalConfig({
       title: 'Display Name',
@@ -290,6 +306,16 @@ export default function ProfileScreen() {
             <Text style={[styles.rowValue, { flex: 1, textAlign: 'right', marginLeft: 16 }]} numberOfLines={1} ellipsizeMode="tail">
               {profile?.kindle_email || 'Not set'}
             </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.row} onPress={handleReconnectGoogle} disabled={reconnectingGoogle}>
+            <View style={styles.rowLeft}>
+              <View style={[styles.iconBox, { backgroundColor: '#4285F411' }]}>
+                <RefreshCw size={20} color="#4285F4" />
+              </View>
+              <Text style={styles.rowLabel}>Reconnect Google Drive</Text>
+            </View>
+            {reconnectingGoogle && <ActivityIndicator size="small" color={colors.primary} />}
           </TouchableOpacity>
         </View>
 

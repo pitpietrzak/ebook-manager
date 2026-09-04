@@ -164,9 +164,9 @@ function AppContent() {
   useEffect(() => {
     if (!session?.user) return;
 
-    validateGoogleSessionOnAppOpen().catch(() => {
-      // signOut is handled inside the auth helper
-    });
+    // A failure here just means Drive access needs reconnecting (from
+    // Profile) — it no longer signs the user out of the app.
+    validateGoogleSessionOnAppOpen().catch(() => {});
   }, [session?.user?.id]);
 
   const navTheme = {

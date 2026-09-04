@@ -1,5 +1,12 @@
 import * as SecureStore from 'expo-secure-store';
-import { supabase } from './supabase';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import * as Linking from 'expo-linking';
+import { getSupabaseConfigError, supabase } from './supabase';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const RECONNECT_HINT = 'Reconnect Google Drive from Profile to keep syncing, sending to Kindle, and moving books between folders.';
 
 const GOOGLE_TOKEN_KEY = 'google_provider_token';
 const GOOGLE_REFRESH_TOKEN_KEY = 'google_provider_refresh_token';
@@ -58,13 +65,6 @@ export async function clearGoogleAuth() {
   ]);
 }
 
-async function signOutDueToExpiredGoogleSession() {
-  await clearGoogleAuth();
-  try {
-    await supabase.auth.signOut();
-  } catch {}
-}
-
 export async function validateGoogleSessionOnAppOpen(): Promise<void> {
   const storedToken = await SecureStore.getItemAsync(GOOGLE_TOKEN_KEY);
   const refreshToken = await SecureStore.getItemAsync(GOOGLE_REFRESH_TOKEN_KEY);
@@ -72,8 +72,10 @@ export async function validateGoogleSessionOnAppOpen(): Promise<void> {
   const expiresAt = Number(storedExpiry || '0');
 
   if (!storedToken && !refreshToken) {
-    await signOutDueToExpiredGoogleSession();
-    throw new Error('Google Drive session expired. Please sign in again.');
+    // No Drive tokens on file — the app itself is still fully usable (the
+    // Supabase session is separate and unaffected), the user just won't be
+    // able to sync/upload/send-to-kindle until they reconnect from Profile.
+    return;
   }
 
   if (!expiresAt || expiresAt - Date.now() <= EXPIRY_BUFFER_MS) {
@@ -95,8 +97,8 @@ export async function getValidGoogleAccessToken(options?: { forceRefresh?: boole
   const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
 
   if (!refreshToken || !clientId) {
-    await signOutDueToExpiredGoogleSession();
-    throw new Error('Google Drive session expired. Please sign in again.');
+    await clearGoogleAuth();
+    throw new Error(`Google Drive access expired. ${RECONNECT_HINT}`);
   }
 
   const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -117,8 +119,8 @@ export async function getValidGoogleAccessToken(options?: { forceRefresh?: boole
     }
 
     if (data?.error === 'invalid_grant' || data?.error === 'invalid_request') {
-      await signOutDueToExpiredGoogleSession();
-      throw new Error('Google Drive session expired. Please sign in again.');
+      await clearGoogleAuth();
+      throw new Error(`Google Drive access expired. ${RECONNECT_HINT}`);
     }
 
     throw new Error(data?.error_description || data?.error || 'Could not refresh Google Drive access.');
@@ -144,4 +146,101 @@ export async function withGoogleAccessTokenRetry<T>(
     const refreshedToken = await getValidGoogleAccessToken({ forceRefresh: true });
     return operation(refreshedToken);
   }
+}
+
+// Runs the full Google OAuth consent flow (via Supabase) and stores the
+// resulting Drive/Gmail provider tokens. Used both for the initial sign-in
+// (LoginScreen) and to reconnect Drive access later without forcing the
+// user through a full app logout (Profile screen). Resolves to false (no
+// error) if the user backs out of the browser without completing sign-in.
+export async function connectGoogleAccount(): Promise<boolean> {
+  const configError = getSupabaseConfigError();
+  if (configError) {
+    throw new Error(`${configError}. Check your .env and restart Expo.`);
+  }
+
+  const googleClientId = (process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+  if (!googleClientId.endsWith('.apps.googleusercontent.com')) {
+    throw new Error('EXPO_PUBLIC_GOOGLE_CLIENT_ID must be a Google OAuth Client ID ending with .apps.googleusercontent.com');
+  }
+
+  const authSessionUri = AuthSession.makeRedirectUri({ path: 'auth' });
+  const linkingUri = Linking.createURL('auth');
+
+  // Always use the app's custom scheme — never exp:// (Expo Go), which
+  // cannot handle deep link callbacks on device.
+  const APP_SCHEME = 'ebooklibrary';
+  let redirectUri: string;
+  if (authSessionUri.startsWith(`${APP_SCHEME}://`)) {
+    redirectUri = authSessionUri;
+  } else if (linkingUri.startsWith(`${APP_SCHEME}://`)) {
+    redirectUri = linkingUri;
+  } else {
+    redirectUri = `${APP_SCHEME}://auth`;
+  }
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      skipBrowserRedirect: true,
+      redirectTo: redirectUri,
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+      scopes: 'openid profile email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.send',
+    },
+  });
+
+  if (error) throw new Error(error.message);
+  if (!data?.url) throw new Error('Supabase did not return an OAuth URL.');
+
+  let authUrl: URL;
+  try {
+    authUrl = new URL(data.url);
+  } catch {
+    throw new Error('Generated OAuth URL is invalid. Verify EXPO_PUBLIC_SUPABASE_URL and Auth settings.');
+  }
+
+  if (!['https:', 'http:'].includes(authUrl.protocol)) {
+    throw new Error('Generated OAuth URL has an unsupported protocol.');
+  }
+  if (authUrl.toString().includes('undefined')) {
+    throw new Error('Generated OAuth URL contains invalid parameters. Check Supabase Auth settings.');
+  }
+
+  const result = await WebBrowser.openAuthSessionAsync(authUrl.toString(), redirectUri);
+
+  // User backed out of the browser without completing sign-in — not an
+  // error, just a no-op (matches the original login flow's behavior).
+  if (result.type !== 'success') {
+    return false;
+  }
+
+  const hashMatches = result.url.match(/#(.*)$/);
+  if (!hashMatches) {
+    throw new Error('Google sign-in did not return the expected data.');
+  }
+
+  const params = new URLSearchParams(hashMatches[1]);
+  const access_token = params.get('access_token');
+  const refresh_token = params.get('refresh_token');
+  const provider_token = params.get('provider_token');
+  const provider_refresh_token = params.get('provider_refresh_token');
+  const expires_in = Number(params.get('expires_in') || '3300');
+
+  if (provider_token && !provider_refresh_token) {
+    throw new Error('Login succeeded, but Google refresh token was not returned. In Supabase Auth > Providers > Google, ensure offline access is enabled and re-consent with prompt=consent.');
+  }
+
+  if (provider_token) {
+    await saveGoogleAuth(provider_token, expires_in, provider_refresh_token);
+  }
+
+  if (access_token && refresh_token) {
+    const { error: sessionError } = await supabase.auth.setSession({ access_token, refresh_token });
+    if (sessionError) throw new Error(sessionError.message);
+  }
+
+  return true;
 }

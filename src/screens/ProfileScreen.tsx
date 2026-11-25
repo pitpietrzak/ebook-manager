@@ -184,7 +184,7 @@ export default function ProfileScreen() {
   const handleReconnectGoogle = async () => {
     try {
       setReconnectingGoogle(true);
-      const completed = await connectGoogleAccount();
+      const completed = await connectGoogleAccount({ forceConsent: true });
       if (completed) {
         showAlert('Connected', 'Google Drive access has been refreshed.');
       }

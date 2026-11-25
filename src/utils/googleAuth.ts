@@ -101,15 +101,36 @@ async function refreshViaServer(): Promise<string> {
 }
 
 // Called once after the OAuth redirect lands back on the web app.
+// Web logins don't force Google's consent screen, so Google only returns a
+// refresh token the first time a user grants access. Later logins rely on
+// the one already stored server-side. If the server has none (first login on
+// web, or access revoked in the Google account), redirect once through the
+// consent screen to obtain it.
+const CONSENT_REDIRECT_FLAG = 'google_consent_redirect_attempted';
+
 async function consumeWebRedirectTokens(): Promise<void> {
   const pending = takePendingWebProviderTokens();
   if (!pending?.providerToken) return;
 
+  const consentAlreadyAttempted = sessionStorage.getItem(CONSENT_REDIRECT_FLAG) === '1';
+  sessionStorage.removeItem(CONSENT_REDIRECT_FLAG);
+
   await saveGoogleAuth(pending.providerToken);
   if (pending.providerRefreshToken) {
     await callGoogleTokenFunction({ action: 'store', refreshToken: pending.providerRefreshToken });
-  } else {
-    console.warn('[googleAuth] Google did not return a refresh token; Drive access will need reconnecting in ~1h.');
+    return;
+  }
+
+  try {
+    // Confirms the server holds a working refresh token (and warms the cache).
+    await refreshViaServer();
+  } catch (e: any) {
+    if (consentAlreadyAttempted) {
+      console.warn('[googleAuth] No Google refresh token after consent; Drive access will need reconnecting.', e);
+      return;
+    }
+    sessionStorage.setItem(CONSENT_REDIRECT_FLAG, '1');
+    await connectGoogleAccount({ forceConsent: true });
   }
 }
 
@@ -121,12 +142,11 @@ async function clearLocalGoogleAuth() {
   ]);
 }
 
-// Call before supabase.auth.signOut() so the server-side token can be removed
-// while the user's session is still valid.
+// Clears the Google tokens held on this device. On web the refresh token
+// stored server-side is intentionally kept, so logging back in doesn't need
+// Google's consent screen again (the google-token function's 'clear' action
+// can remove it if ever needed).
 export async function clearGoogleAuth() {
-  if (isWeb) {
-    await callGoogleTokenFunction({ action: 'clear' }).catch(() => {});
-  }
   await clearLocalGoogleAuth();
 }
 
@@ -229,7 +249,7 @@ export async function withGoogleAccessTokenRetry<T>(
 // (LoginScreen) and to reconnect Drive access later without forcing the
 // user through a full app logout (Profile screen). Resolves to false (no
 // error) if the user backs out of the browser without completing sign-in.
-export async function connectGoogleAccount(): Promise<boolean> {
+export async function connectGoogleAccount(options?: { forceConsent?: boolean }): Promise<boolean> {
   const configError = getSupabaseConfigError();
   if (configError) {
     throw new Error(`${configError}. Check your .env and restart Expo.`);
@@ -241,19 +261,24 @@ export async function connectGoogleAccount(): Promise<boolean> {
   }
 
   if (isWeb) {
-    // Full-page redirect to Google and back to this site. The page unloads,
-    // so this promise never meaningfully resolves; on return, supabase.ts
-    // restores the session and validateGoogleSessionOnAppOpen stores tokens.
+    // Full-page redirect to Google and back to this site. On return,
+    // supabase.ts restores the session and validateGoogleSessionOnAppOpen
+    // stores the tokens. The consent screen is only forced when asked for
+    // (Profile > Reconnect, or when the server has no refresh token yet).
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin,
-        queryParams: { access_type: 'offline', prompt: 'consent' },
+        queryParams: options?.forceConsent
+          ? { access_type: 'offline', prompt: 'consent' }
+          : { access_type: 'offline' },
         scopes: GOOGLE_SCOPES,
       },
     });
     if (error) throw new Error(error.message);
-    return true;
+    // The page is navigating away — report "not completed" so callers don't
+    // show a success message for a flow that finishes after the redirect.
+    return false;
   }
 
   const authSessionUri = AuthSession.makeRedirectUri({ path: 'auth' });

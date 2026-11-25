@@ -3,7 +3,7 @@ import { supabase } from '../utils/supabase';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-import { Alert, Platform } from 'react-native';
+import { Platform } from 'react-native';
 
 type Profile = {
   id: string;
@@ -204,6 +204,9 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const registerForPushNotificationsAsync = async () => {
+    // Expo push tokens don't exist on web — the in-app activity feed covers it.
+    if (Platform.OS === 'web') return;
+
     if (!Device.isDevice) {
       console.log('[Push] Skipping registration: physical device required');
       return;

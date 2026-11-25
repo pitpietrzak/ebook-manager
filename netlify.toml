@@ -1,0 +1,24 @@
+# Web build of the Expo app (react-native-web). Mobile builds still go through EAS.
+[build]
+  command = "npm run build:web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Hashed bundles never change — cache forever.
+[[headers]]
+  for = "/_expo/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# SPA catch-all (same as top-four-podcast-typer)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

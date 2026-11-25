@@ -104,12 +104,16 @@ export const uploadFileToDrive = async (
     const uploadUrl = initResponse.headers.get('Location');
     if (!uploadUrl) throw new Error('No upload URL returned from Google Drive');
 
-    // Step 2: Upload the actual file binary
-    const fileToUpload = {
-      uri: Platform.OS === 'ios' ? fileUri.replace('file://', '') : fileUri,
-      type: mimeType,
-      name: fileName,
-    } as any;
+    // Step 2: Upload the actual file binary. On web the picker gives a
+    // blob: URL, which we read into a Blob; native fetch accepts the
+    // {uri,type,name} file descriptor directly.
+    const fileToUpload: any = Platform.OS === 'web'
+      ? await (await fetch(fileUri)).blob()
+      : {
+          uri: Platform.OS === 'ios' ? fileUri.replace('file://', '') : fileUri,
+          type: mimeType,
+          name: fileName,
+        };
     
     const uploadResponse = await fetch(uploadUrl, {
       method: 'PUT',

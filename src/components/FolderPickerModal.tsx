@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, TextInput, ActivityIndicator } from 'react-native';
+import { showAlert } from '../utils/alert';
 import { listDriveFolders, createDriveFolder } from '../utils/drive';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
 
@@ -34,7 +35,7 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
       const data = await withGoogleAccessTokenRetry((token) => listDriveFolders(token, rootId));
       setFolders(data);
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Could not fetch folders');
+      showAlert('Error', e.message || 'Could not fetch folders');
     } finally {
       setLoading(false);
     }
@@ -53,7 +54,7 @@ export default function FolderPickerModal({ visible, onClose, onSelectFolder }: 
       
       onSelectFolder(newFolder.id, newFolder.name);
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Could not create folder');
+      showAlert('Error', e.message || 'Could not create folder');
     } finally {
       setCreating(false);
     }

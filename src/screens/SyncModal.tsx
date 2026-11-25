@@ -1,8 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import {
-  View, Text, Modal, TouchableOpacity, StyleSheet, FlatList,
-  TextInput, ActivityIndicator, Alert, ScrollView, SafeAreaView
-} from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet, FlatList, TextInput, ActivityIndicator, ScrollView, SafeAreaView } from 'react-native';
+import { showAlert } from '../utils/alert';
 import { supabase } from '../utils/supabase';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
@@ -106,7 +104,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
 
       setDriveItems(items);
     } catch (e: any) {
-      Alert.alert('Drive Error', e.message);
+      showAlert('Drive Error', e.message);
     } finally {
       setLoadingDrive(false);
     }
@@ -114,7 +112,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
 
   const openSelectMode = async () => {
     if (!sharedFolderId) {
-      Alert.alert('Config Error', 'EXPO_PUBLIC_SHARED_FOLDER_ID is not set in your .env file');
+      showAlert('Config Error', 'EXPO_PUBLIC_SHARED_FOLDER_ID is not set in your .env file');
       return;
     }
     setStep('browse');
@@ -232,7 +230,7 @@ export default function SyncModal({ visible, onClose, onSyncComplete }: Props) {
   // --- Selected Books Sync ---
   const proceedToGrouping = () => {
     if (selectedFiles.length === 0) {
-      Alert.alert('No books selected', 'Please select at least one book.');
+      showAlert('No books selected', 'Please select at least one book.');
       return;
     }
     setStep('grouping');

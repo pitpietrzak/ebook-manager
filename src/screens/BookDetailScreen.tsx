@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Linking, TextInput, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Linking, TextInput, Modal } from 'react-native';
+import { showAlert } from '../utils/alert';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../../App';
@@ -118,14 +119,14 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setIsRead(previousIsRead);
-        Alert.alert('Login required', 'Please log in to track read books.');
+        showAlert('Login required', 'Please log in to track read books.');
         return;
       }
 
       await setBookReadState(user.id, bookId, nextIsRead);
     } catch (e: any) {
       setIsRead(previousIsRead);
-      Alert.alert('Error', e.message || 'Could not update read status.');
+      showAlert('Error', e.message || 'Could not update read status.');
     } finally {
       setSavingRead(false);
     }
@@ -209,7 +210,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         setUserRating(previousRating);
-        Alert.alert('Login required', 'Please log in to rate books.');
+        showAlert('Login required', 'Please log in to rate books.');
         return;
       }
 
@@ -226,7 +227,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       fetchRatings();
     } catch (e: any) {
       setUserRating(previousRating);
-      Alert.alert('Error', e.message);
+      showAlert('Error', e.message);
     } finally {
       setSavingRating(false);
     }
@@ -236,12 +237,12 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        Alert.alert('Login required', 'Please log in to save your rating or note.');
+        showAlert('Login required', 'Please log in to save your rating or note.');
         return;
       }
 
       if (!userRating) {
-        Alert.alert('Pick a rating', 'Choose a star rating before saving your note.');
+        showAlert('Pick a rating', 'Choose a star rating before saving your note.');
         return;
       }
 
@@ -257,9 +258,9 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
       if (error) throw error;
       fetchRatings();
-      Alert.alert('Saved', userReview.trim() ? 'Your review was saved.' : 'Your rating was updated.');
+      showAlert('Saved', userReview.trim() ? 'Your review was saved.' : 'Your rating was updated.');
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      showAlert('Error', e.message);
     } finally {
       setSavingReview(false);
     }
@@ -275,7 +276,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
     if (error) {
       console.warn('Failed to load book details:', error.message);
-      Alert.alert('Error', 'Could not load this book. Please try again.');
+      showAlert('Error', 'Could not load this book. Please try again.');
     } else if (data) {
       let bookWithProfile = data as any;
       if (data.user_id) {
@@ -310,18 +311,18 @@ export default function BookDetailScreen({ navigation, route }: Props) {
     try {
       const canOpen = await Linking.canOpenURL(url);
       if (!canOpen) {
-        Alert.alert('Invalid link', `Could not open ${label} link.`);
+        showAlert('Invalid link', `Could not open ${label} link.`);
         return;
       }
       await Linking.openURL(url);
     } catch (error: any) {
-      Alert.alert('Link error', error?.message || `Could not open ${label} link.`);
+      showAlert('Link error', error?.message || `Could not open ${label} link.`);
     }
   };
 
   const handleSendToKindle = async () => {
     if (!profile?.kindle_email) {
-      Alert.alert(
+      showAlert(
         'Kindle Email Missing',
         'Please set your Kindle email in your Profile settings first.',
         [
@@ -403,15 +404,15 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
       if (error || data?.error || !data?.success) {
         const friendly = getFriendlyKindleError(errorMsg);
-        Alert.alert(friendly.title, friendly.body);
+        showAlert(friendly.title, friendly.body);
         return;
       }
 
-      Alert.alert('Success', 'Book sent to your Kindle!');
+      showAlert('Success', 'Book sent to your Kindle!');
     } catch (e: any) {
       const errorMsg = await extractKindleErrorMessage(e);
       const friendly = getFriendlyKindleError(errorMsg);
-      Alert.alert(friendly.title, friendly.body);
+      showAlert(friendly.title, friendly.body);
     } finally {
       setSendingEmail(false);
     }
@@ -443,13 +444,13 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
     const proposedUrl = value.trim();
     if (!proposedUrl) {
-      Alert.alert('Missing URL', 'Please paste the correct URL first.');
+      showAlert('Missing URL', 'Please paste the correct URL first.');
       return;
     }
 
     if (!isUrlAllowedForType(proposedUrl, reportLinkType)) {
       const hostLabel = reportLinkType === 'goodreads' ? 'goodreads.com' : 'lubimyczytac.pl';
-      Alert.alert('Invalid URL', `Please provide a valid ${hostLabel} link.`);
+      showAlert('Invalid URL', `Please provide a valid ${hostLabel} link.`);
       return;
     }
 
@@ -457,7 +458,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       setReportSubmitting(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        Alert.alert('Login required', 'Please log in to update links.');
+        showAlert('Login required', 'Please log in to update links.');
         return;
       }
 
@@ -477,7 +478,7 @@ export default function BookDetailScreen({ navigation, route }: Props) {
         setReportModalVisible(false);
         setReportLinkType(null);
         setReportCurrentUrl(null);
-        Alert.alert('Saved', 'Book URL was updated.');
+        showAlert('Saved', 'Book URL was updated.');
         return;
       }
 
@@ -497,9 +498,9 @@ export default function BookDetailScreen({ navigation, route }: Props) {
       setReportModalVisible(false);
       setReportLinkType(null);
       setReportCurrentUrl(null);
-      Alert.alert('Report sent', 'Thanks. Admin will review this correction.');
+      showAlert('Report sent', 'Thanks. Admin will review this correction.');
     } catch (e: any) {
-      Alert.alert('Failed to submit', e?.message || 'Could not submit your report. Please try again.');
+      showAlert('Failed to submit', e?.message || 'Could not submit your report. Please try again.');
     } finally {
       setReportSubmitting(false);
     }
@@ -529,21 +530,21 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
       setBook((prev) => (prev ? { ...prev, folder_tags: nextFolderTags } : prev));
       setMoveFolderVisible(false);
-      Alert.alert('Moved', folderName ? `Book moved to ${folderName}.` : 'Book moved to root folder.');
+      showAlert('Moved', folderName ? `Book moved to ${folderName}.` : 'Book moved to root folder.');
     } catch (e: any) {
       const rawMessage = String(e?.message || '');
       if (rawMessage.includes('appNotAuthorizedToFile')) {
-        Alert.alert(
+        showAlert(
           'Move failed',
           'This Google session was granted limited file access. Log out and sign in again to grant full Drive access, then retry the move.'
         );
       } else if (rawMessage.includes('(403)') || rawMessage.toLowerCase().includes('insufficient permissions')) {
-        Alert.alert(
+        showAlert(
           'Move failed',
           'Google Drive denied this move (403). Reconnect Google access and verify this file is inside your configured shared folder.'
         );
       } else {
-        Alert.alert('Move failed', rawMessage || 'Could not move this book to the selected folder.');
+        showAlert('Move failed', rawMessage || 'Could not move this book to the selected folder.');
       }
     } finally {
       setMovingFolder(false);
@@ -566,9 +567,9 @@ export default function BookDetailScreen({ navigation, route }: Props) {
 
       await fetchBookDetails();
       setSeriesModalVisible(false);
-      Alert.alert('Saved', seriesName.trim() ? 'Series assignment updated.' : 'Series cleared from this book.');
+      showAlert('Saved', seriesName.trim() ? 'Series assignment updated.' : 'Series cleared from this book.');
     } catch (e: any) {
-      Alert.alert('Series update failed', e?.message || 'Could not save series changes.');
+      showAlert('Series update failed', e?.message || 'Could not save series changes.');
     } finally {
       setSavingSeries(false);
     }

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Alert, Linking, Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import { showAlert } from '../utils/alert';
 import Constants from 'expo-constants';
 import { supabase } from '../utils/supabase';
 
@@ -45,6 +46,12 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
 
   const checkForUpdates = async (silent = true) => {
+    // The web build is always the latest deploy — nothing to update.
+    if (Platform.OS === 'web') {
+      if (!silent) showAlert('Up to Date', `You're using the web app, which is always the latest version.`);
+      return;
+    }
+
     try {
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
 
@@ -70,7 +77,7 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
             ? `A critical update to v${data.version} is available. You must update to continue.\n\n${data.release_notes || ''}`
             : `A new version v${data.version} is available!\n\n${data.release_notes || 'Update now to get the latest features and fixes.'}`;
 
-          Alert.alert(
+          showAlert(
             isRequired ? 'Update Required' : 'Update Available',
             message,
             isRequired
@@ -102,10 +109,10 @@ export const VersionProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 ]
           );
         } else if (!silent) {
-          Alert.alert('Up to Date', `You're running the latest version (v${currentVersion}).`);
+          showAlert('Up to Date', `You're running the latest version (v${currentVersion}).`);
         }
       } else if (!silent) {
-        Alert.alert('Up to Date', `You're running the latest version (v${currentVersion}).`);
+        showAlert('Up to Date', `You're running the latest version (v${currentVersion}).`);
       }
     } catch (e) {
       console.warn('Version check failed:', e);

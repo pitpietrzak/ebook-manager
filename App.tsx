@@ -52,6 +52,7 @@ import { LayoutDashboard, BookOpen, User as UserIcon } from 'lucide-react-native
 import { validateGoogleSessionOnAppOpen } from './src/utils/googleAuth';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
+import WebAlertHost from './src/components/WebAlertHost';
 
 // Additional Screen
 import ProfileScreen from './src/screens/ProfileScreen';
@@ -102,8 +103,8 @@ function TabNavigator() {
   );
 }
 
-// Set up notification handlers at app bootstrap
-Notifications.setNotificationHandler({
+// Set up notification handlers at app bootstrap (native only — no Expo push on web)
+if (Platform.OS !== 'web') Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
@@ -120,6 +121,8 @@ function AppContent() {
 
   // Set up notification event listeners
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+
     // Handle notification received in foreground
     const foregroundSubscription = Notifications.addNotificationReceivedListener(
       (_notification) => {
@@ -198,6 +201,7 @@ function AppContent() {
           <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
         )}
       </Stack.Navigator>
+      {Platform.OS === 'web' && <WebAlertHost />}
     </NavigationContainer>
   );
 }

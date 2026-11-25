@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert } from 'react-native';
+import {  } from 'react-native';
+import { showAlert } from '../utils/alert';
 import * as DocumentPicker from 'expo-document-picker';
 import { uploadFileToDrive, getOrCreateFolder } from '../utils/drive';
 import { withGoogleAccessTokenRetry } from '../utils/googleAuth';
@@ -36,7 +37,7 @@ export function useBookUpload(onSuccess: () => void) {
       const fileExt = file.name?.split('.').pop()?.toLowerCase() || '';
       
       if (!SUPPORTED_BOOK_EXTENSIONS.includes(fileExt as any)) {
-        Alert.alert('Unsupported Format', 'Please select an EPUB, MOBI, AZW3, or PDF file.');
+        showAlert('Unsupported Format', 'Please select an EPUB, MOBI, AZW3, or PDF file.');
         return;
       }
 
@@ -51,7 +52,7 @@ export function useBookUpload(onSuccess: () => void) {
         setPickerVisible(true);
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Could not pick file');
+      showAlert('Error', e.message || 'Could not pick file');
     }
   };
 
@@ -138,10 +139,10 @@ export function useBookUpload(onSuccess: () => void) {
 
       if (error) throw new Error(error.message);
 
-      Alert.alert('Success', `Uploaded ${file.name}!`);
+      showAlert('Success', `Uploaded ${file.name}!`);
       onSuccess();
     } catch (e: any) {
-      Alert.alert('Upload Error', e.message || 'Upload failed');
+      showAlert('Upload Error', e.message || 'Upload failed');
     } finally {
       setIsUploading(false);
     }

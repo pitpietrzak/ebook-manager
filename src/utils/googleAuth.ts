@@ -1,10 +1,17 @@
-import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import * as Linking from 'expo-linking';
-import { getSupabaseConfigError, supabase } from './supabase';
+import { getSupabaseConfigError, supabase, takePendingWebProviderTokens } from './supabase';
+import { deleteSecureItem, getSecureItem, setSecureItem } from './secureStorage';
 
-WebBrowser.maybeCompleteAuthSession();
+const isWeb = Platform.OS === 'web';
+
+if (!isWeb) {
+  WebBrowser.maybeCompleteAuthSession();
+}
+
+const GOOGLE_SCOPES = 'openid profile email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.send';
 
 const RECONNECT_HINT = 'Reconnect Google Drive from Profile to keep syncing, sending to Kindle, and moving books between folders.';
 
@@ -47,28 +54,93 @@ export async function saveGoogleAuth(
   expiresInSeconds?: number | null,
   refreshToken?: string | null
 ) {
-  await SecureStore.setItemAsync(GOOGLE_TOKEN_KEY, providerToken);
+  await setSecureItem(GOOGLE_TOKEN_KEY, providerToken);
 
   const expiresAt = Date.now() + (Number(expiresInSeconds || DEFAULT_TOKEN_LIFETIME_SECONDS) * 1000);
-  await SecureStore.setItemAsync(GOOGLE_TOKEN_EXPIRY_KEY, String(expiresAt));
+  await setSecureItem(GOOGLE_TOKEN_EXPIRY_KEY, String(expiresAt));
 
-  if (refreshToken) {
-    await SecureStore.setItemAsync(GOOGLE_REFRESH_TOKEN_KEY, refreshToken);
+  // On web the refresh token lives server-side (google-token edge function).
+  if (refreshToken && !isWeb) {
+    await setSecureItem(GOOGLE_REFRESH_TOKEN_KEY, refreshToken);
   }
 }
 
-export async function clearGoogleAuth() {
+// --- Web: refresh token is held by the `google-token` edge function ---------
+
+async function callGoogleTokenFunction(body: Record<string, unknown>): Promise<any> {
+  const { data, error } = await supabase.functions.invoke('google-token', { body });
+  if (!error) return data;
+
+  // Non-2xx: pull the JSON error message out of the response body.
+  let message = error.message;
+  let code: string | undefined;
+  try {
+    const payload = await (error as any).context?.json?.();
+    if (payload?.error) message = payload.error;
+    code = payload?.code;
+  } catch {
+    // keep generic message
+  }
+  const err = new Error(message) as Error & { code?: string };
+  err.code = code;
+  throw err;
+}
+
+async function refreshViaServer(): Promise<string> {
+  try {
+    const data = await callGoogleTokenFunction({ action: 'refresh' });
+    await saveGoogleAuth(data.access_token, data.expires_in);
+    return data.access_token;
+  } catch (e: any) {
+    if (e?.code === 'reconnect') {
+      await clearLocalGoogleAuth();
+      throw new Error(`Google Drive access expired. ${RECONNECT_HINT}`);
+    }
+    throw e;
+  }
+}
+
+// Called once after the OAuth redirect lands back on the web app.
+async function consumeWebRedirectTokens(): Promise<void> {
+  const pending = takePendingWebProviderTokens();
+  if (!pending?.providerToken) return;
+
+  await saveGoogleAuth(pending.providerToken);
+  if (pending.providerRefreshToken) {
+    await callGoogleTokenFunction({ action: 'store', refreshToken: pending.providerRefreshToken });
+  } else {
+    console.warn('[googleAuth] Google did not return a refresh token; Drive access will need reconnecting in ~1h.');
+  }
+}
+
+async function clearLocalGoogleAuth() {
   await Promise.all([
-    SecureStore.deleteItemAsync(GOOGLE_TOKEN_KEY),
-    SecureStore.deleteItemAsync(GOOGLE_REFRESH_TOKEN_KEY),
-    SecureStore.deleteItemAsync(GOOGLE_TOKEN_EXPIRY_KEY),
+    deleteSecureItem(GOOGLE_TOKEN_KEY),
+    deleteSecureItem(GOOGLE_REFRESH_TOKEN_KEY),
+    deleteSecureItem(GOOGLE_TOKEN_EXPIRY_KEY),
   ]);
 }
 
+// Call before supabase.auth.signOut() so the server-side token can be removed
+// while the user's session is still valid.
+export async function clearGoogleAuth() {
+  if (isWeb) {
+    await callGoogleTokenFunction({ action: 'clear' }).catch(() => {});
+  }
+  await clearLocalGoogleAuth();
+}
+
 export async function validateGoogleSessionOnAppOpen(): Promise<void> {
-  const storedToken = await SecureStore.getItemAsync(GOOGLE_TOKEN_KEY);
-  const refreshToken = await SecureStore.getItemAsync(GOOGLE_REFRESH_TOKEN_KEY);
-  const storedExpiry = await SecureStore.getItemAsync(GOOGLE_TOKEN_EXPIRY_KEY);
+  if (isWeb) {
+    // Returning from the Google redirect: stash the new tokens. Otherwise
+    // nothing to do up front — access tokens are fetched lazily on demand.
+    await consumeWebRedirectTokens();
+    return;
+  }
+
+  const storedToken = await getSecureItem(GOOGLE_TOKEN_KEY);
+  const refreshToken = await getSecureItem(GOOGLE_REFRESH_TOKEN_KEY);
+  const storedExpiry = await getSecureItem(GOOGLE_TOKEN_EXPIRY_KEY);
   const expiresAt = Number(storedExpiry || '0');
 
   if (!storedToken && !refreshToken) {
@@ -85,15 +157,19 @@ export async function validateGoogleSessionOnAppOpen(): Promise<void> {
 
 export async function getValidGoogleAccessToken(options?: { forceRefresh?: boolean }): Promise<string> {
   const forceRefresh = options?.forceRefresh === true;
-  const storedToken = await SecureStore.getItemAsync(GOOGLE_TOKEN_KEY);
-  const storedExpiry = await SecureStore.getItemAsync(GOOGLE_TOKEN_EXPIRY_KEY);
+  const storedToken = await getSecureItem(GOOGLE_TOKEN_KEY);
+  const storedExpiry = await getSecureItem(GOOGLE_TOKEN_EXPIRY_KEY);
   const expiresAt = Number(storedExpiry || '0');
 
   if (!forceRefresh && storedToken && (!expiresAt || expiresAt - Date.now() > EXPIRY_BUFFER_MS)) {
     return storedToken;
   }
 
-  const refreshToken = await SecureStore.getItemAsync(GOOGLE_REFRESH_TOKEN_KEY);
+  if (isWeb) {
+    return refreshViaServer();
+  }
+
+  const refreshToken = await getSecureItem(GOOGLE_REFRESH_TOKEN_KEY);
   const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
 
   if (!refreshToken || !clientId) {
@@ -164,6 +240,22 @@ export async function connectGoogleAccount(): Promise<boolean> {
     throw new Error('EXPO_PUBLIC_GOOGLE_CLIENT_ID must be a Google OAuth Client ID ending with .apps.googleusercontent.com');
   }
 
+  if (isWeb) {
+    // Full-page redirect to Google and back to this site. The page unloads,
+    // so this promise never meaningfully resolves; on return, supabase.ts
+    // restores the session and validateGoogleSessionOnAppOpen stores tokens.
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { access_type: 'offline', prompt: 'consent' },
+        scopes: GOOGLE_SCOPES,
+      },
+    });
+    if (error) throw new Error(error.message);
+    return true;
+  }
+
   const authSessionUri = AuthSession.makeRedirectUri({ path: 'auth' });
   const linkingUri = Linking.createURL('auth');
 
@@ -188,7 +280,7 @@ export async function connectGoogleAccount(): Promise<boolean> {
         access_type: 'offline',
         prompt: 'consent',
       },
-      scopes: 'openid profile email https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/gmail.send',
+      scopes: GOOGLE_SCOPES,
     },
   });
 

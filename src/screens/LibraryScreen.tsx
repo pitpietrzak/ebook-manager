@@ -1,8 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet,
-  ActivityIndicator, Alert, RefreshControl
-} from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
+import { showAlert } from '../utils/alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { CompositeNavigationProp, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -10,8 +8,6 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, TabParamList, LibraryStackParamList } from '../../App';
 import { supabase } from '../utils/supabase';
 import { invokeEdgeFunctionWithRetry } from '../utils/supabaseFunctions';
-import * as DocumentPicker from 'expo-document-picker';
-import * as SecureStore from 'expo-secure-store';
 import { useBookUpload } from '../hooks/useBookUpload';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
@@ -243,7 +239,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
 
     if (error) {
       console.warn('Failed to load books:', error.message);
-      Alert.alert('Error', 'Could not load your library. Please try again.');
+      showAlert('Error', 'Could not load your library. Please try again.');
     } else if (data) {
       const booksWithProfiles = await enrichBooksWithRelations(data);
 
@@ -314,7 +310,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
       if (error) throw error;
       setAiResults(Array.isArray(data) ? data : []);
     } catch (e: any) {
-      Alert.alert('Search Error', e?.message || 'AI search failed');
+      showAlert('Search Error', e?.message || 'AI search failed');
       setAiResults([]);
     } finally {
       setAiSearching(false);
@@ -369,7 +365,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
         }))
       );
     } catch (e: any) {
-      Alert.alert('Could not load folder books', e?.message || 'Please try again.');
+      showAlert('Could not load folder books', e?.message || 'Please try again.');
       setFolderSeriesVisible(false);
       setSeriesFolderName(null);
       setFolderSeriesBooks([]);
@@ -400,9 +396,9 @@ export default function LibraryScreen({ navigation, route }: Props) {
       setSeriesFolderName(null);
       setFolderSeriesBooks([]);
       await fetchBooks();
-      Alert.alert('Saved', `Updated series for ${updatedCount} ${updatedCount === 1 ? 'book' : 'books'} in ${seriesFolderName}.`);
+      showAlert('Saved', `Updated series for ${updatedCount} ${updatedCount === 1 ? 'book' : 'books'} in ${seriesFolderName}.`);
     } catch (e: any) {
-      Alert.alert('Series update failed', e?.message || 'Could not update series for this folder.');
+      showAlert('Series update failed', e?.message || 'Could not update series for this folder.');
     } finally {
       setSavingFolderSeries(false);
     }
@@ -416,7 +412,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
   const openFolderActionsMenu = (item: { name: string, count: number }, index: number) => {
     if (!hasFolderActions(item.name)) return;
 
-    Alert.alert('Folder Actions', `Choose action for "${item.name}"`, [
+    showAlert('Folder Actions', `Choose action for "${item.name}"`, [
       {
         text: 'Set Icon',
         onPress: () => {

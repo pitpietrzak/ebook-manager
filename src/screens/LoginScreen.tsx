@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { showAlert } from '../utils/alert';
 import { connectGoogleAccount } from '../utils/googleAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { StatusBar } from 'react-native';
@@ -16,7 +17,7 @@ export default function LoginScreen() {
       setLoading(true);
       await connectGoogleAccount();
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      showAlert('Error', e.message);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Linking } from 'react-native';
+import { showAlert } from '../utils/alert';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 import { useProfile } from '../contexts/ProfileContext';
@@ -92,7 +93,7 @@ export default function ProfileScreen() {
       setUnverifiedBooks((data || []) as UnverifiedBook[]);
     } catch (e) {
       console.error('Error fetching unverified books:', e);
-      Alert.alert('Error', 'Could not load unverified books.');
+      showAlert('Error', 'Could not load unverified books.');
     } finally {
       setLoadingUnverified(false);
     }
@@ -112,7 +113,7 @@ export default function ProfileScreen() {
       setPendingReports((data || []) as PendingLinkReport[]);
     } catch (e) {
       console.error('Error fetching link reports:', e);
-      Alert.alert('Error', 'Could not load pending reports.');
+      showAlert('Error', 'Could not load pending reports.');
     } finally {
       setLoadingReports(false);
     }
@@ -127,7 +128,7 @@ export default function ProfileScreen() {
       if (error) throw error;
       setUnverifiedBooks((prev) => prev.filter((b) => b.id !== bookId));
     } catch (e: any) {
-      Alert.alert('Verification failed', e?.message || 'Could not verify this book.');
+      showAlert('Verification failed', e?.message || 'Could not verify this book.');
     } finally {
       setProcessingBookId(null);
     }
@@ -143,7 +144,7 @@ export default function ProfileScreen() {
       if (error) throw error;
       setPendingReports((prev) => prev.filter((r) => r.id !== reportId));
     } catch (e: any) {
-      Alert.alert('Accept failed', e?.message || 'Could not accept this report.');
+      showAlert('Accept failed', e?.message || 'Could not accept this report.');
     } finally {
       setProcessingReportId(null);
     }
@@ -159,7 +160,7 @@ export default function ProfileScreen() {
       if (error) throw error;
       setPendingReports((prev) => prev.filter((r) => r.id !== reportId));
     } catch (e: any) {
-      Alert.alert('Reject failed', e?.message || 'Could not reject this report.');
+      showAlert('Reject failed', e?.message || 'Could not reject this report.');
     } finally {
       setProcessingReportId(null);
     }
@@ -168,7 +169,7 @@ export default function ProfileScreen() {
   const openUrlIfPossible = async (url: string) => {
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) {
-      Alert.alert('Invalid URL', 'Could not open this URL.');
+      showAlert('Invalid URL', 'Could not open this URL.');
       return;
     }
     await Linking.openURL(url);
@@ -177,7 +178,7 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     await clearGoogleAuth();
     const { error } = await supabase.auth.signOut();
-    if (error) Alert.alert('Error', error.message);
+    if (error) showAlert('Error', error.message);
   };
 
   const handleReconnectGoogle = async () => {
@@ -185,10 +186,10 @@ export default function ProfileScreen() {
       setReconnectingGoogle(true);
       const completed = await connectGoogleAccount();
       if (completed) {
-        Alert.alert('Connected', 'Google Drive access has been refreshed.');
+        showAlert('Connected', 'Google Drive access has been refreshed.');
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      showAlert('Error', e.message);
     } finally {
       setReconnectingGoogle(false);
     }
@@ -225,7 +226,7 @@ export default function ProfileScreen() {
       }
       setModalVisible(false);
     } catch (e: any) {
-      Alert.alert('Error', 'Failed to save changes.');
+      showAlert('Error', 'Failed to save changes.');
     }
   };
 

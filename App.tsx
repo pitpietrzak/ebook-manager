@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
+import { LinkingOptions, NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Session } from '@supabase/supabase-js';
@@ -40,6 +40,34 @@ export type TabParamList = {
   Profile: undefined;
 };
 
+// Web only: map screens to URLs so the browser Back button (and refresh)
+// navigates inside the app instead of leaving it. Not used on native, where
+// the ebooklibrary:// scheme is reserved for the Google OAuth callback.
+const webLinking: LinkingOptions<RootStackParamList> = {
+  prefixes: [],
+  config: {
+    screens: {
+      Login: 'login',
+      Main: {
+        screens: {
+          Dashboard: '',
+          Library: {
+            screens: {
+              LibraryHome: 'library',
+              LibraryCatalog: {
+                path: 'library/:collectionFilter',
+                parse: { autoFocusSearch: (v: string) => v === 'true' },
+              },
+            },
+          },
+          Profile: 'profile',
+        },
+      },
+      BookDetail: 'book/:bookId',
+    },
+  },
+};
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 const LibraryStack = createNativeStackNavigator<LibraryStackParamList>();
@@ -63,7 +91,6 @@ function LibraryNavigator() {
       <LibraryStack.Screen
         name="LibraryHome"
         component={LibraryScreen}
-        initialParams={{ collectionFilter: null }}
       />
       <LibraryStack.Screen name="LibraryCatalog" component={LibraryScreen} />
     </LibraryStack.Navigator>
@@ -116,6 +143,9 @@ if (Platform.OS !== 'web') Notifications.setNotificationHandler({
 
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
+  // On web, wait for supabase-js to finish reading the OAuth redirect from the
+  // URL before the navigator (with URL linking) takes over the address bar.
+  const [authReady, setAuthReady] = useState(Platform.OS !== 'web');
   const { colors, isDark } = useTheme();
   const supabaseConfigError = getSupabaseConfigError();
 
@@ -147,12 +177,13 @@ function AppContent() {
   useEffect(() => {
     if (supabaseConfigError) {
       setSession(null);
+      setAuthReady(true);
       return;
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-    });
+    }).finally(() => setAuthReady(true));
 
     const {
       data: { subscription },
@@ -183,8 +214,14 @@ function AppContent() {
     },
   };
 
+  if (!authReady) return null;
+
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer
+      theme={navTheme}
+      linking={Platform.OS === 'web' ? webLinking : undefined}
+      documentTitle={{ formatter: () => 'Biblioteczka Leniwców' }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerStyle: { backgroundColor: colors.headerBg },

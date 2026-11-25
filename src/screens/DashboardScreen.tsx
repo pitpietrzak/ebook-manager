@@ -189,7 +189,7 @@ export default function DashboardScreen({ navigation }: Props) {
         <View style={[viewMode === 'grid' ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}> 
           <DynamicIcon name={iconName} size={viewMode === 'grid' ? 28 : 22} color={color} />
         </View>
-        <View style={viewMode === 'grid' ? null : { flex: 1 }}>
+        <View style={viewMode === 'grid' ? styles.gridTextWrap : { flex: 1 }}>
           <Text style={viewMode === 'grid' ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
           <Text style={viewMode === 'grid' ? styles.gridCount : styles.listCount}>{item.count} {item.count === 1 ? 'book' : 'books'}</Text>
         </View>
@@ -208,7 +208,7 @@ export default function DashboardScreen({ navigation }: Props) {
         <View style={[viewMode === 'grid' ? styles.gridIconContainer : styles.listIconContainer, { backgroundColor: color + '15' }]}> 
           <DynamicIcon name="Library" size={viewMode === 'grid' ? 28 : 22} color={color} />
         </View>
-        <View style={viewMode === 'grid' ? null : { flex: 1 }}>
+        <View style={viewMode === 'grid' ? styles.gridTextWrap : { flex: 1 }}>
           <Text style={viewMode === 'grid' ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
           <Text style={viewMode === 'grid' ? styles.gridCount : styles.listCount}>{item.count} {item.count === 1 ? 'book' : 'books'}</Text>
         </View>
@@ -234,7 +234,7 @@ export default function DashboardScreen({ navigation }: Props) {
         </View>
 
         <Text style={styles.sectionTitle}>Most Recent Books</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll} contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll} contentContainerStyle={styles.horizontalContent}>
           {recentBooks.map((book, i) => (
             <TouchableOpacity
               key={book.id}
@@ -267,7 +267,7 @@ export default function DashboardScreen({ navigation }: Props) {
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.horizontalScroll}
-            contentContainerStyle={{ paddingLeft: 16, paddingRight: 8 }}
+            contentContainerStyle={styles.horizontalContent}
           >
             {recentReactions.map((reaction) => (
               <TouchableOpacity
@@ -472,7 +472,8 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     marginBottom: 12,
     paddingHorizontal: 16,
   },
-  horizontalScroll: { marginBottom: 8 },
+  horizontalScroll: { marginBottom: 8, flexGrow: 0 },
+  horizontalContent: { paddingLeft: 16, paddingRight: 8, alignItems: 'flex-start' },
   recentBookCard: {
     width: 120, marginRight: 16, backgroundColor: colors.card, borderRadius: 18, padding: 12, alignItems: 'center',
     shadowColor: colors.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 2,
@@ -575,7 +576,8 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
   gridIconContainer: {
     width: 60, height: 60, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginBottom: 12,
   },
-  gridName: { fontSize: 16, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 4 },
+  gridTextWrap: { alignSelf: 'stretch', alignItems: 'center' },
+  gridName: { maxWidth: '100%', fontSize: 16, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 4 },
   gridCount: { fontSize: 12, color: colors.textSecondary, fontWeight: '600', textAlign: 'center' },
   listCard: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 16, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: colors.border,

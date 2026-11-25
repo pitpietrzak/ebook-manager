@@ -452,7 +452,7 @@ export default function LibraryScreen({ navigation, route }: Props) {
             color={color}
           />
         </View>
-        <View style={!isGrid && { flex: 1 }}>
+        <View style={isGrid ? styles.gridTextWrap : { flex: 1 }}>
           <Text style={isGrid ? styles.gridName : styles.listName} numberOfLines={1}>{item.name}</Text>
           <Text style={isGrid ? styles.gridCount : styles.listCount}>
             {item.count} {item.count === 1 ? 'book' : 'books'}
@@ -856,7 +856,9 @@ const getStyles = (colors: any, isDark: boolean) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
     marginBottom: 12,
   },
+  gridTextWrap: { alignSelf: 'stretch', alignItems: 'center' },
   gridName: {
+    maxWidth: '100%',
     fontSize: 16, fontWeight: '700', color: colors.text,
     textAlign: 'center', marginBottom: 4,
   },

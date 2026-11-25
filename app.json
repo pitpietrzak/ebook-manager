@@ -2,7 +2,7 @@
   "expo": {
     "name": "Biblioteczka Leniwców",
     "slug": "ebook-manager",
-    "version": "1.2.2",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "ebooklibrary",

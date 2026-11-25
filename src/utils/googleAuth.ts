@@ -49,23 +49,17 @@ export function isGoogleAuthError(rawMessage?: string): boolean {
   ].some((fragment) => message.includes(fragment));
 }
 
-export async function saveGoogleAuth(
-  providerToken: string,
-  expiresInSeconds?: number | null,
-  refreshToken?: string | null
-) {
+// Stores the short-lived Google access token on this device. The long-lived
+// refresh token is never kept on the device — it lives server-side, held by
+// the `google-token` edge function (web and mobile alike).
+export async function saveGoogleAuth(providerToken: string, expiresInSeconds?: number | null) {
   await setSecureItem(GOOGLE_TOKEN_KEY, providerToken);
 
   const expiresAt = Date.now() + (Number(expiresInSeconds || DEFAULT_TOKEN_LIFETIME_SECONDS) * 1000);
   await setSecureItem(GOOGLE_TOKEN_EXPIRY_KEY, String(expiresAt));
-
-  // On web the refresh token lives server-side (google-token edge function).
-  if (refreshToken && !isWeb) {
-    await setSecureItem(GOOGLE_REFRESH_TOKEN_KEY, refreshToken);
-  }
 }
 
-// --- Web: refresh token is held by the `google-token` edge function ---------
+// --- Refresh token is held by the `google-token` edge function --------------
 
 async function callGoogleTokenFunction(body: Record<string, unknown>): Promise<any> {
   const { data, error } = await supabase.functions.invoke('google-token', { body });
@@ -100,12 +94,37 @@ async function refreshViaServer(): Promise<string> {
   }
 }
 
-// Called once after the OAuth redirect lands back on the web app.
-// Web logins don't force Google's consent screen, so Google only returns a
-// refresh token the first time a user grants access. Later logins rely on
-// the one already stored server-side. If the server has none (first login on
-// web, or access revoked in the Google account), redirect once through the
-// consent screen to obtain it.
+// Handles the Google tokens returned by a sign-in. Requires the Supabase
+// session to be set already (the edge function authenticates the user).
+//
+// Sign-ins don't force Google's consent screen, so Google only returns a
+// refresh token the first time a user grants access; later sign-ins rely on
+// the one already stored server-side. Returns 'needs-consent' when Google
+// sent none and the server has none either (first sign-in, or access was
+// revoked in the Google account) — the caller then re-runs the sign-in with
+// the consent screen forced.
+async function handleSignInProviderTokens(
+  providerToken: string,
+  providerRefreshToken: string | null,
+  expiresInSeconds?: number | null
+): Promise<'ok' | 'needs-consent'> {
+  await saveGoogleAuth(providerToken, expiresInSeconds);
+
+  if (providerRefreshToken) {
+    await callGoogleTokenFunction({ action: 'store', refreshToken: providerRefreshToken });
+    return 'ok';
+  }
+
+  try {
+    await refreshViaServer();
+    return 'ok';
+  } catch (e) {
+    console.warn('[googleAuth] No stored Google refresh token; consent needed.', e);
+    return 'needs-consent';
+  }
+}
+
+// Web: called once after the OAuth redirect lands back on the app.
 const CONSENT_REDIRECT_FLAG = 'google_consent_redirect_attempted';
 
 async function consumeWebRedirectTokens(): Promise<void> {
@@ -115,23 +134,33 @@ async function consumeWebRedirectTokens(): Promise<void> {
   const consentAlreadyAttempted = sessionStorage.getItem(CONSENT_REDIRECT_FLAG) === '1';
   sessionStorage.removeItem(CONSENT_REDIRECT_FLAG);
 
-  await saveGoogleAuth(pending.providerToken);
-  if (pending.providerRefreshToken) {
-    await callGoogleTokenFunction({ action: 'store', refreshToken: pending.providerRefreshToken });
-    return;
-  }
-
-  try {
-    // Confirms the server holds a working refresh token (and warms the cache).
-    await refreshViaServer();
-  } catch (e: any) {
-    if (consentAlreadyAttempted) {
-      console.warn('[googleAuth] No Google refresh token after consent; Drive access will need reconnecting.', e);
-      return;
-    }
+  const outcome = await handleSignInProviderTokens(pending.providerToken, pending.providerRefreshToken);
+  if (outcome === 'needs-consent' && !consentAlreadyAttempted) {
     sessionStorage.setItem(CONSENT_REDIRECT_FLAG, '1');
     await connectGoogleAccount({ forceConsent: true });
   }
+}
+
+// Mobile: versions up to 1.2.x kept the Google refresh token on the device.
+// Hand it to the server once and remove it locally, so existing users keep
+// their Drive access without signing in again.
+let legacyMigration: Promise<void> | null = null;
+
+function migrateLegacyRefreshToken(): Promise<void> {
+  if (isWeb) return Promise.resolve();
+  if (!legacyMigration) {
+    legacyMigration = (async () => {
+      const legacyToken = await getSecureItem(GOOGLE_REFRESH_TOKEN_KEY);
+      if (!legacyToken) return;
+      await callGoogleTokenFunction({ action: 'store', refreshToken: legacyToken });
+      await deleteSecureItem(GOOGLE_REFRESH_TOKEN_KEY);
+    })().catch((e) => {
+      // Keep the local token and retry on the next app open.
+      legacyMigration = null;
+      console.warn('[googleAuth] Could not migrate Google refresh token to server.', e);
+    });
+  }
+  return legacyMigration;
 }
 
 async function clearLocalGoogleAuth() {
@@ -142,10 +171,10 @@ async function clearLocalGoogleAuth() {
   ]);
 }
 
-// Clears the Google tokens held on this device. On web the refresh token
-// stored server-side is intentionally kept, so logging back in doesn't need
-// Google's consent screen again (the google-token function's 'clear' action
-// can remove it if ever needed).
+// Clears the Google tokens held on this device. The refresh token stored
+// server-side is intentionally kept, so logging back in doesn't need Google's
+// consent screen again (the google-token function's 'clear' action can remove
+// it if ever needed).
 export async function clearGoogleAuth() {
   await clearLocalGoogleAuth();
 }
@@ -158,21 +187,9 @@ export async function validateGoogleSessionOnAppOpen(): Promise<void> {
     return;
   }
 
-  const storedToken = await getSecureItem(GOOGLE_TOKEN_KEY);
-  const refreshToken = await getSecureItem(GOOGLE_REFRESH_TOKEN_KEY);
-  const storedExpiry = await getSecureItem(GOOGLE_TOKEN_EXPIRY_KEY);
-  const expiresAt = Number(storedExpiry || '0');
-
-  if (!storedToken && !refreshToken) {
-    // No Drive tokens on file — the app itself is still fully usable (the
-    // Supabase session is separate and unaffected), the user just won't be
-    // able to sync/upload/send-to-kindle until they reconnect from Profile.
-    return;
-  }
-
-  if (!expiresAt || expiresAt - Date.now() <= EXPIRY_BUFFER_MS) {
-    await getValidGoogleAccessToken();
-  }
+  // Mobile: move a refresh token left on the device by an older version to
+  // the server. Access tokens are then fetched lazily when Drive is used.
+  await migrateLegacyRefreshToken();
 }
 
 export async function getValidGoogleAccessToken(options?: { forceRefresh?: boolean }): Promise<string> {
@@ -185,45 +202,9 @@ export async function getValidGoogleAccessToken(options?: { forceRefresh?: boole
     return storedToken;
   }
 
-  if (isWeb) {
-    return refreshViaServer();
-  }
-
-  const refreshToken = await getSecureItem(GOOGLE_REFRESH_TOKEN_KEY);
-  const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-
-  if (!refreshToken || !clientId) {
-    await clearGoogleAuth();
-    throw new Error(`Google Drive access expired. ${RECONNECT_HINT}`);
-  }
-
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }).toString(),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok || !data?.access_token) {
-    if (data?.error === 'invalid_client' || data?.error === 'unauthorized_client') {
-      throw new Error('Google OAuth client mismatch. Ensure EXPO_PUBLIC_GOOGLE_CLIENT_ID matches the Google client configured in Supabase Auth > Providers > Google.');
-    }
-
-    if (data?.error === 'invalid_grant' || data?.error === 'invalid_request') {
-      await clearGoogleAuth();
-      throw new Error(`Google Drive access expired. ${RECONNECT_HINT}`);
-    }
-
-    throw new Error(data?.error_description || data?.error || 'Could not refresh Google Drive access.');
-  }
-
-  await saveGoogleAuth(data.access_token, data.expires_in, data.refresh_token || refreshToken);
-  return data.access_token;
+  // Make sure an older mobile install has handed its token to the server.
+  await migrateLegacyRefreshToken();
+  return refreshViaServer();
 }
 
 export async function withGoogleAccessTokenRetry<T>(
@@ -244,8 +225,9 @@ export async function withGoogleAccessTokenRetry<T>(
   }
 }
 
-// Runs the full Google OAuth consent flow (via Supabase) and stores the
-// resulting Drive/Gmail provider tokens. Used both for the initial sign-in
+// Runs the Google OAuth sign-in (via Supabase) and stores the resulting
+// Drive/Gmail tokens. The consent screen is only forced when asked for
+// (Profile > Reconnect) or when the server has no refresh token yet. Used both for the initial sign-in
 // (LoginScreen) and to reconnect Drive access later without forcing the
 // user through a full app logout (Profile screen). Resolves to false (no
 // error) if the user backs out of the browser without completing sign-in.
@@ -301,10 +283,9 @@ export async function connectGoogleAccount(options?: { forceConsent?: boolean })
     options: {
       skipBrowserRedirect: true,
       redirectTo: redirectUri,
-      queryParams: {
-        access_type: 'offline',
-        prompt: 'consent',
-      },
+      queryParams: options?.forceConsent
+        ? { access_type: 'offline', prompt: 'consent' }
+        : { access_type: 'offline' },
       scopes: GOOGLE_SCOPES,
     },
   });
@@ -346,17 +327,22 @@ export async function connectGoogleAccount(options?: { forceConsent?: boolean })
   const provider_refresh_token = params.get('provider_refresh_token');
   const expires_in = Number(params.get('expires_in') || '3300');
 
-  if (provider_token && !provider_refresh_token) {
-    throw new Error('Login succeeded, but Google refresh token was not returned. In Supabase Auth > Providers > Google, ensure offline access is enabled and re-consent with prompt=consent.');
-  }
-
-  if (provider_token) {
-    await saveGoogleAuth(provider_token, expires_in, provider_refresh_token);
-  }
-
+  // Session first: the google-token edge function needs the signed-in user.
   if (access_token && refresh_token) {
     const { error: sessionError } = await supabase.auth.setSession({ access_token, refresh_token });
     if (sessionError) throw new Error(sessionError.message);
+  }
+
+  if (provider_token) {
+    const outcome = await handleSignInProviderTokens(provider_token, provider_refresh_token, expires_in);
+    if (outcome === 'needs-consent') {
+      if (!options?.forceConsent) {
+        // First sign-in (or access revoked): go through Google's consent
+        // screen once to obtain a refresh token.
+        return connectGoogleAccount({ forceConsent: true });
+      }
+      console.warn('[googleAuth] Google returned no refresh token even with consent.');
+    }
   }
 
   return true;
